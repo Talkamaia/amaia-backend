@@ -1,0 +1,58 @@
+/*  promptManager.js
+    Dynamiskt systemprompt-bygge + content-safety
+*/
+const {
+  basePersona,
+  silentLead,
+  activeListening,
+  arousalBuild,
+  boundaryViolation,
+} = require("./prompts/amaia");
+
+const TABU = [
+  /barn/i, /minderårig/i, /under\s*18/i,
+  /våldtäkt/i, /rape/i, /tvingad/i,
+  /zoofili/i, /bestiality/i
+];
+
+/**
+ * Returnerar true om kundens senaste yttrande bryter mot svensk lag/policy
+ */
+function violatesPolicy(userInput) {
+  return TABU.some((re) => re.test(userInput));
+}
+
+/**
+ * Väljer system-prompt utifrån kontext
+ * ctx: {
+ *   userInput: senaste kundfrasen (string),
+ *   silenceMs: millisekunder sedan kunden sa något,
+ *   aroused: bool (heuristik: t.ex. "mmm", "åh", snabb andning),
+ * }
+ */
+function buildSystemPrompt(ctx) {
+  // 1. Checka policy direkt
+  if (violatesPolicy(ctx.userInput)) {
+    return `${basePersona}\n${boundaryViolation}`;
+  }
+
+  // 2. Silence-scenariot
+  if (ctx.silenceMs >= 10000) {
+    return `${basePersona}\n${silentLead}`;
+  }
+
+  // 3. Arousal-scenariot
+  if (ctx.aroused) {
+    return `${basePersona}\n${arousalBuild}`;
+  }
+
+  // 4. Aktiv kund som pratar mycket
+  if (ctx.userInput.split(" ").length > 12) {
+    return `${basePersona}\n${activeListening}`;
+  }
+
+  // 5. Standard
+  return basePersona;
+}
+
+module.exports = { buildSystemPrompt, violatesPolicy };
