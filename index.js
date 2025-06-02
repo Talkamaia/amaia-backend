@@ -3,8 +3,8 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const { xml } = require("xmlbuilder2");
 const path = require("path");
+const OpenAI = require("openai");
 
-const { Configuration, OpenAIApi } = require("openai");
 const { buildSystemPrompt } = require("./promptManager");
 const { synthesize } = require("./eleven");
 
@@ -15,35 +15,30 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use("/audio", express.static(path.join(__dirname, "public/audio")));
 
-// Initiera OpenAI
-const configuration = new Configuration({
+// Initiera OpenAI med nya SDK
+const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-const openai = new OpenAIApi(configuration);
 
 // Twilio webhook – inkommande samtal
 app.post("/incoming-call", async (req, res) => {
   try {
-    console.log("📞 Inkommande samtal från Twilio");
+    console.log("📞 Inkommande samtal!");
 
-    // 1. Hämta vad kunden sa (eller lämna tomt vid tystnad)
     const userInput =
       req.body.SpeechResult ||
       req.body.Body ||
       "";
 
-    // 2. Kontextanalys
     const ctx = {
       userInput,
       silenceMs: +req.body.RecordingDuration === 0 ? 10000 : 0,
       aroused: /ah+|mmm+|åh+|kåt|skön|hard/i.test(userInput),
     };
 
-    // 3. Bygg system-prompt
     const systemPrompt = buildSystemPrompt(ctx);
 
-    // 4. GPT-anrop
-    const gpt = await openai.createChatCompletion({
+    const gpt = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         { role: "system", content: systemPrompt },
@@ -52,14 +47,12 @@ app.post("/incoming-call", async (req, res) => {
       temperature: 0.9,
     });
 
-    const aiReply = gpt.data.choices[0].message.content.trim();
-    console.log("🧠 GPT-svar:", aiReply);
+    const aiReply = gpt.choices[0].message.content.trim();
+    console.log("🧠 GPT:", aiReply);
 
-    // 5. Generera ljud med ElevenLabs
     const filename = `amaia-${Date.now()}.mp3`;
     const audioPath = await synthesize(aiReply, filename);
 
-    // 6. Skicka tillbaka TwiML med röstuppspelning
     const twiml = xml({ version: "1.0" })
       .ele("Response")
         .ele("Play")
@@ -75,7 +68,7 @@ app.post("/incoming-call", async (req, res) => {
     const fallback = xml({ version: "1.0" })
       .ele("Response")
         .ele("Say", { voice: "Polly.Swedish", language: "sv-SE" })
-        .txt("Tyvärr, Amaia kunde inte svara just nu. Försök igen om en liten stund.")
+        .txt("Tyvärr kunde Amaia inte svara just nu. Försök igen om en stund.")
         .up()
       .up()
       .end();
@@ -84,7 +77,6 @@ app.post("/incoming-call", async (req, res) => {
   }
 });
 
-// Starta server
-app.listen(port, () =>
-  console.log(`✅ Amaia-backend är live på port ${port}`)
-);
+app.listen(port, () => {
+  console.log(`✅ Amaia backend är live på port ${port}`);
+});
