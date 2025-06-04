@@ -12,10 +12,11 @@ app.use(bodyParser.json());
 // 📞 Enkel test – inkommande samtal via Twilio
 app.post("/incoming-call", (req, res) => {
   console.log("📞 Inkommande samtal från:", req.body.From);
+  console.log("🧪 Fullt request body:", req.body); // EXTRA LOGG
 
   const twiml = create({ version: "1.0" })
     .ele("Response")
-      .ele("Say", { voice: "Polly.Swedish", language: "sv-SE" })
+      .ele("Say", { voice: "Polly.Maja", language: "sv-SE" }) // ← Ändrat här
       .txt("Hej älskling. Detta är ett testmeddelande från Amaia. Om du hör detta fungerar samtalskedjan.")
       .up()
     .up()
@@ -28,3 +29,4 @@ app.post("/incoming-call", (req, res) => {
 app.listen(port, () => {
   console.log(`✅ Amaia test-backend är live på port ${port}`);
 });
+
