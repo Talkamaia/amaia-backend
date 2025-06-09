@@ -1,40 +1,35 @@
-require("dotenv").config();
-const express = require("express");
-const bodyParser = require("body-parser");
-const { create } = require("xmlbuilder2");
-const { getGPTResponse } = require("./promptManager");
-const { generateSpeech } = require("./eleven");
+const {
+  basePersona,
+  silentLead,
+  activeListening,
+  arousalBuild,
+  boundaryViolation,
+} = require("./prompts/amaia");
 
-const app = express();
-const port = process.env.PORT || 3000;
+const TABU = [
+  /barn/i, /minderårig/i, /under\s*18/i,
+  /våldtäkt/i, /rape/i, /tvingad/i,
+  /zoofili/i, /bestiality/i,
+];
 
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
+function violatesPolicy(text) {
+  return TABU.some((re) => re.test(text));
+}
 
-app.post("/incoming-call", async (req, res) => {
-  const from = req.body.From;
-  console.log("📞 Inkommande samtal från:", from);
+function buildSystemPrompt(ctx) {
+  if (violatesPolicy(ctx.userInput)) {
+    return `${basePersona}\n${boundaryViolation}`;
+  }
+  if (ctx.silenceMs >= 10000) {
+    return `${basePersona}\n${silentLead}`;
+  }
+  if (ctx.aroused) {
+    return `${basePersona}\n${arousalBuild}`;
+  }
+  if (ctx.userInput.split(" ").length > 12) {
+    return `${basePersona}\n${activeListening}`;
+  }
+  return basePersona;
+}
 
-  // 1. Första GPT-svar
-  const gptReply = await getGPTResponse("En person ringer in, säg något varmt och sexigt.");
-  console.log("🤖 GPT-svar:", gptReply);
-
-  // 2. Generera ElevenLabs-ljud
-  const audioUrl = await generateSpeech(gptReply);
-  console.log("🔊 Ljudfil från ElevenLabs:", audioUrl);
-
-  // 3. Skicka TwiML med ljudet till Twilio
-  const twiml = create({ version: "1.0" })
-    .ele("Response")
-      .ele("Play")
-        .txt(audioUrl)
-      .up()
-    .up()
-    .end({ prettyPrint: false });
-
-  res.type("text/xml").send(twiml);
-});
-
-app.listen(port, () => {
-  console.log(`✅ Amaia-backend live på port ${port}`);
-});
+module.exports = { buildSystemPrompt };
