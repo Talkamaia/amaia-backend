@@ -2,6 +2,8 @@ require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
 const { create } = require("xmlbuilder2");
+const { getGPTResponse } = require("./promptManager");
+const { generateSpeech } = require("./eleven");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -9,15 +11,23 @@ const port = process.env.PORT || 3000;
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// 📞 Enkel test – inkommande samtal via Twilio
-app.post("/incoming-call", (req, res) => {
-  console.log("📞 Inkommande samtal från:", req.body.From);
-  console.log("🧪 Fullt request body:", req.body); // EXTRA LOGG
+app.post("/incoming-call", async (req, res) => {
+  const from = req.body.From;
+  console.log("📞 Inkommande samtal från:", from);
 
+  // 1. Första GPT-svar
+  const gptReply = await getGPTResponse("En person ringer in, säg något varmt och sexigt.");
+  console.log("🤖 GPT-svar:", gptReply);
+
+  // 2. Generera ElevenLabs-ljud
+  const audioUrl = await generateSpeech(gptReply);
+  console.log("🔊 Ljudfil från ElevenLabs:", audioUrl);
+
+  // 3. Skicka TwiML med ljudet till Twilio
   const twiml = create({ version: "1.0" })
     .ele("Response")
-      .ele("Say", { voice: "Polly.Maja", language: "sv-SE" }) // ← Ändrat här
-      .txt("Hej älskling. Detta är ett testmeddelande från Amaia. Om du hör detta fungerar samtalskedjan.")
+      .ele("Play")
+        .txt(audioUrl)
       .up()
     .up()
     .end({ prettyPrint: false });
@@ -25,8 +35,6 @@ app.post("/incoming-call", (req, res) => {
   res.type("text/xml").send(twiml);
 });
 
-// 🚀 Start server
 app.listen(port, () => {
-  console.log(`✅ Amaia test-backend är live på port ${port}`);
+  console.log(`✅ Amaia-backend live på port ${port}`);
 });
-
