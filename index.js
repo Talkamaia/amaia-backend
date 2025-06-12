@@ -13,7 +13,6 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use("/audio", express.static("public/audio"));
 
-// 🧪 Test ElevenLabs
 app.get("/test-voice", async (req, res) => {
   const text = "Hej älskling. Jag är Amaia. Viska något till mig så berättar jag en hemlighet.";
   try {
@@ -25,11 +24,10 @@ app.get("/test-voice", async (req, res) => {
   }
 });
 
-// 📞 Twilio webhook med GPT-svar
 app.post("/incoming-call", async (req, res) => {
   console.log("📞 Inkommande samtal från:", req.body.From);
 
-  const userInput = "Hej Amaia, vad gör du just nu?"; // 👈 Här lägger vi in riktig input senare
+  const userInput = "Hej Amaia, vad gör du just nu?";
 
   try {
     const gptReply = await askGPT(userInput);
