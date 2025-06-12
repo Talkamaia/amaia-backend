@@ -1,3 +1,4 @@
+// ✅ mediaServer.js – WebSocket-server för Twilio Media Streams
 const WebSocket = require("ws");
 
 function startMediaServer(server) {
@@ -9,10 +10,12 @@ function startMediaServer(server) {
     ws.on("message", (msg) => {
       try {
         const data = JSON.parse(msg);
+
         if (data.event === "media") {
           const audio = data.media.payload; // base64-encoded μ-law audio
-          // TODO: Här kommer vi sen skicka det till Whisper för transkribering
+          // TODO: Skicka till transkribering i nästa steg
         }
+
       } catch (err) {
         console.error("❌ Fel i MediaStream:", err.message);
       }
