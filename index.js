@@ -3,15 +3,14 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const { create } = require("xmlbuilder2");
 const { synthesize } = require("./eleven");
+const { askGPT } = require("./gpt"); // 🧠 GPT-4o-funktionen
 
 const app = express();
-const port = process.env.PORT; // ⚠️ Måste vara exakt så här på Render
+const port = process.env.PORT;
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-
-// Gör statiska ljudfiler tillgängliga från public/audio/
-app.use("/audio", express.static("public/audio"));
+app.use("/audio", express.static("public/audio")); // Gör .mp3 tillgänglig
 
 // 🧪 TEST: ElevenLabs fungerar?
 app.get("/test-voice", async (req, res) => {
@@ -25,19 +24,37 @@ app.get("/test-voice", async (req, res) => {
   }
 });
 
-// 📞 Twilio webhook (kan byggas ut med GPT sen)
-app.post("/incoming-call", (req, res) => {
+// 📞 Twilio webhook – nu med GPT-svar
+app.post("/incoming-call", async (req, res) => {
   console.log("📞 Inkommande samtal från:", req.body.From);
 
-  const twiml = create({ version: "1.0" })
-    .ele("Response")
-      .ele("Say", { voice: "Polly.Swedish", language: "sv-SE" })
-        .txt("Hej älskling. Detta är ett testmeddelande från Amaia. Om du hör detta fungerar samtalskedjan.")
-      .up()
-    .up()
-    .end({ prettyPrint: false });
+  // 💬 Simulerat användarinput (vi lägger in riktig input sen)
+  const userInput = "Hej Amaia, vad har du på dig?";
 
-  res.type("text/xml").send(twiml);
+  try {
+    // 🧠 GPT-4o genererar svar
+    const gptReply = await askGPT(userInput);
+    console.log("🤖 GPT-svar:", gptReply);
+
+    // 🎤 ElevenLabs skapar ljud
+    const audioUrl = await synthesize(gptReply, "gpt-response.mp3");
+    console.log("🔊 Ljudfil:", audioUrl);
+
+    // 📡 Skicka TwiML till Twilio
+    const twiml = create({ version: "1.0" })
+      .ele("Response")
+        .ele("Play")
+          .txt(`${req.protocol}://${req.get("host")}${audioUrl}`)
+        .up()
+      .up()
+      .end({ prettyPrint: false });
+
+    res.type("text/xml").send(twiml);
+
+  } catch (err) {
+    console.error("❌ Fel i GPT-kedjan:", err.message);
+    res.status(500).send("Något gick fel.");
+  }
 });
 
 // 🚀 Starta server
