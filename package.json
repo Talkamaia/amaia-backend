@@ -1,20 +1,19 @@
 {
   "name": "amaia-backend",
   "version": "1.0.0",
-  "description": "AI-röstbackend för Amaia med Twilio Media Streams",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.6.8",
+    "@deepgram/sdk": "^3.2.0",
+    "axios": "^1.6.7",
     "body-parser": "^1.20.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "openai": "^4.33.0",
-    "uuid": "^9.0.0",
-    "ws": "^8.13.0",
-    "xmlbuilder2": "^3.0.2"
+    "fs": "0.0.1-security",
+    "openai": "^4.26.0",
+    "path": "^0.12.7",
+    "ws": "^8.13.0"
   }
 }
