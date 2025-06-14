@@ -3,26 +3,27 @@ const askGPT = require("./gpt");
 const synthesize = require("./eleven");
 require("dotenv").config();
 
-const deepgram = new Deepgram(process.env.DEEPGRAM_API_KEY);
+const deepgram = new Deepgram({ apiKey: process.env.DEEPGRAM_API_KEY });
 
 function startMediaServer(ws) {
   console.log("🎧 Media Server kör");
 
-  const deepgramLive = deepgram.transcription.live({
-    punctuate: true,
+  const deepgramLive = deepgram.listen.live({
+    model: "nova-2",
     language: "sv",
     encoding: "mulaw",
     sample_rate: 8000,
+    smart_format: true,
+    interim_results: false,
   });
 
   deepgramLive.on("transcriptReceived", async (data) => {
-    const transcript = JSON.parse(data);
-    const text = transcript.channel.alternatives[0]?.transcript;
+    const transcript = data.channel.alternatives[0]?.transcript;
 
-    if (text && text.length > 1) {
-      console.log("🗣 Användaren sa:", text);
+    if (transcript && transcript.length > 1) {
+      console.log("🗣 Användaren sa:", transcript);
 
-      const gptResponse = await askGPT(text);
+      const gptResponse = await askGPT(transcript);
       console.log("🤖 GPT svarar:", gptResponse);
 
       const audioPath = await synthesize(gptResponse);
@@ -63,3 +64,4 @@ function startMediaServer(ws) {
 }
 
 module.exports = { startMediaServer };
+
