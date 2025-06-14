@@ -1,9 +1,7 @@
 const { OpenAI } = require("openai");
 require("dotenv").config();
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 async function askGPT(input) {
   const response = await openai.chat.completions.create({
@@ -24,4 +22,3 @@ async function askGPT(input) {
 }
 
 module.exports = askGPT;
-
