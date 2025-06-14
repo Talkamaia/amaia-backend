@@ -19,38 +19,29 @@ function startMediaServer(ws) {
 
   deepgramLive.on("transcriptReceived", async (data) => {
     const transcript = data.channel.alternatives[0]?.transcript;
-
     if (transcript && transcript.length > 1) {
       console.log("🗣 Användaren sa:", transcript);
-
       const gptResponse = await askGPT(transcript);
       console.log("🤖 GPT svarar:", gptResponse);
-
       const audioPath = await synthesize(gptResponse);
       const filename = audioPath.split("/").pop();
-
       const twiml = `
         <Response>
           <Play>https://amaia-backend-3w9f.onrender.com/audio/${filename}</Play>
         </Response>
       `;
-
       ws.send(JSON.stringify({ event: "sendTwiml", twiml }));
     }
   });
 
-  deepgramLive.on("error", (err) => {
-    console.error("❌ Deepgram-fel:", err.message);
-  });
+  deepgramLive.on("error", (err) => console.error("❌ Deepgram-fel:", err.message));
 
   ws.on("message", (msg) => {
     const data = JSON.parse(msg);
-
     if (data.event === "media" && data.media?.payload) {
       const audioBuffer = Buffer.from(data.media.payload, "base64");
       deepgramLive.send(audioBuffer);
     }
-
     if (data.event === "stop") {
       console.log("🔴 Samtal avslutat");
       deepgramLive.finish();
@@ -64,4 +55,3 @@ function startMediaServer(ws) {
 }
 
 module.exports = { startMediaServer };
-
