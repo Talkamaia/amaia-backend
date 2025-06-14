@@ -1,41 +1,45 @@
-// ✅ index.js – Twilio Media Streams med WebSocket
-require("dotenv").config();
+// index.js – huvudfil för Amaia-backend
 const express = require("express");
 const bodyParser = require("body-parser");
-const { create } = require("xmlbuilder2");
-const http = require("http");
 const { startMediaServer } = require("./mediaServer");
+const http = require("http");
+const WebSocket = require("ws");
+require("dotenv").config();
 
 const app = express();
 const server = http.createServer(app);
-const port = process.env.PORT || 10000;
 
+// WebSocket-server för Twilio Media Streams
+const wss = new WebSocket.Server({ server });
+wss.on("connection", (ws) => {
+  console.log("🟢 WebSocket ansluten från Twilio");
+  startMediaServer(ws);
+});
+
+// Middleware
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-app.use("/audio", express.static("public/audio"));
 
-// 📞 Twilio Media Stream webhook
+// Webhook för Twilio inkommande samtal
 app.post("/incoming-call", (req, res) => {
-  console.log("📞 Inkommande samtal från:", req.body.From);
+  console.log("📞 Inkommande samtal – skickar TwiML...");
 
-  const twiml = create({ version: "1.0" })
-    .ele("Response")
-      .ele("Start")
-        .ele("Stream", {
-          url: `wss://${req.get("host")}/media`,
-        })
-        .up()
-      .up()
-    .up()
-    .end({ prettyPrint: false });
+  const twiml = `
+    <Response>
+      <Start>
+        <Stream url="wss://amaia-backend-3w9f.onrender.com" />
+      </Start>
+      <Say>Hej älskling... Ett ögonblick, jag lyssnar på dig nu.</Say>
+    </Response>
+  `;
 
-  res.type("text/xml").send(twiml);
+  res.type("text/xml");
+  res.send(twiml);
 });
 
-// 🚀 Starta HTTP + WebSocket
-server.listen(port, () => {
-  console.log(`✅ Amaia backend + Media Stream live på port ${port}`);
+// Starta server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`🚀 Servern kör på port ${PORT}`);
 });
 
-// 🎧 Starta WebSocket-servern
-startMediaServer(server);
