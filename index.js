@@ -9,22 +9,17 @@ require("dotenv").config();
 const app = express();
 const server = http.createServer(app);
 
-// WebSocket för Twilio Media Streams
+// WebSocket-server
 const wss = new WebSocket.Server({ server });
-
 wss.on("connection", (ws) => {
   console.log("🟢 WebSocket ansluten från Twilio Media Stream");
   startMediaServer(ws);
 });
 
-// Middleware
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-
-// Servera mp3-filer
 app.use("/audio", express.static(path.join(__dirname, "audio")));
 
-// Webhook för inkommande samtal
 app.post("/incoming-call", (req, res) => {
   console.log("📞 Inkommande samtal – skickar TwiML");
 
@@ -41,7 +36,6 @@ app.post("/incoming-call", (req, res) => {
   res.send(twiml);
 });
 
-// Starta server
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log(`✅ Amaia backend + Media Stream live på port ${PORT}`);
