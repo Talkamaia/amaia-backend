@@ -1,70 +1,68 @@
-// ✅ mediaServer.js – WebSocket-server för Twilio Media Streams
-const WebSocket = require("ws");
-const fs = require("fs");
-const { askGPT } = require("./gpt");
-const { synthesize } = require("./eleven");
-const { v4: uuidv4 } = require("uuid");
+// ✅ mediaServer.js – realtids AI-samtal med Deepgram + GPT + ElevenLabs
+const { Deepgram } = require("@deepgram/sdk");
+const askGPT = require("./gpt");
+const synthesize = require("./eleven");
+require("dotenv").config();
 
-// Simulerad transkribering (ersätt med Whisper senare)
-function fakeTranscribe(base64audio) {
-  return "Hej Amaia, vad tänker du på?";
-}
+const deepgram = new Deepgram(process.env.DEEPGRAM_API_KEY);
 
-function startMediaServer(server) {
-  const wss = new WebSocket.Server({ server });
+function startMediaServer(ws) {
+  console.log("🎧 Media Server kör");
 
-  wss.on("connection", (ws) => {
-    console.log("🟢 Twilio Media Stream ansluten");
-
-    let buffer = [];
-
-    ws.on("message", async (msg) => {
-      try {
-        const data = JSON.parse(msg);
-
-        if (data.event === "start") {
-          console.log("🔄 Startar Media Stream-session");
-        }
-
-        if (data.event === "media") {
-          buffer.push(data.media.payload); // base64-ljud
-        }
-
-        if (data.event === "stop") {
-          console.log("🛑 Media stream avslutad – bearbetar...");
-
-          // 👉 Kombinera all inkommande ljud (simulerat)
-          const userInput = fakeTranscribe(buffer.join(""));
-
-          console.log("🗣 Användaren sa:", userInput);
-
-          const gptReply = await askGPT(userInput);
-          console.log("🤖 GPT svarar:", gptReply);
-
-          const filename = `stream-${uuidv4()}.mp3`;
-          const url = await synthesize(gptReply, filename);
-
-          // 👇 Spela upp direkt i samtalet via Twilio <Play>
-          const twiml = `
-            <Response>
-              <Play>https://${process.env.RENDER_EXTERNAL_HOSTNAME}/audio/${filename}</Play>
-            </Response>
-          `;
-          ws.send(JSON.stringify({ event: "sendTwiml", twiml }));
-
-        }
-
-      } catch (err) {
-        console.error("❌ Fel i MediaStream:", err.message);
-      }
-    });
-
-    ws.on("close", () => {
-      console.log("🔴 Media Stream koppling stängd");
-    });
+  const deepgramLive = deepgram.transcription.live({
+    punctuate: true,
+    language: "sv", // eller "en" vid engelska samtal
+    encoding: "mulaw",
+    sample_rate: 8000,
   });
 
-  console.log("🎧 Media Server kör");
+  // 🔁 Ta emot transkript från Deepgram
+  deepgramLive.on("transcriptReceived", async (data) => {
+    const transcript = JSON.parse(data);
+    const text = transcript.channel.alternatives[0]?.transcript;
+
+    if (text && text.length > 1) {
+      console.log("🗣 Användaren sa:", text);
+
+      const gptResponse = await askGPT(text);
+      console.log("🤖 GPT svarar:", gptResponse);
+
+      const audioPath = await synthesize(gptResponse);
+      const filename = audioPath.split("/").pop();
+
+      const twiml = `
+        <Response>
+          <Play>https://amaia-backend-3w9f.onrender.com/audio/${filename}</Play>
+        </Response>
+      `;
+
+      ws.send(JSON.stringify({ event: "sendTwiml", twiml }));
+    }
+  });
+
+  deepgramLive.on("error", (err) => {
+    console.error("❌ Deepgram-fel:", err.message);
+  });
+
+  // 🎧 Ta emot ljud från Twilio
+  ws.on("message", (msg) => {
+    const data = JSON.parse(msg);
+
+    if (data.event === "media" && data.media?.payload) {
+      const audioBuffer = Buffer.from(data.media.payload, "base64");
+      deepgramLive.send(audioBuffer);
+    }
+
+    if (data.event === "stop") {
+      console.log("🔴 Samtal avslutat");
+      deepgramLive.finish();
+    }
+  });
+
+  ws.on("close", () => {
+    console.log("🔌 WebSocket stängd");
+    deepgramLive.finish();
+  });
 }
 
 module.exports = { startMediaServer };
