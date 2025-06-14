@@ -1,4 +1,3 @@
-// ✅ mediaServer.js – realtids AI-samtal med Deepgram + GPT + ElevenLabs
 const { Deepgram } = require("@deepgram/sdk");
 const askGPT = require("./gpt");
 const synthesize = require("./eleven");
@@ -11,12 +10,11 @@ function startMediaServer(ws) {
 
   const deepgramLive = deepgram.transcription.live({
     punctuate: true,
-    language: "sv", // eller "en" vid engelska samtal
+    language: "sv",
     encoding: "mulaw",
     sample_rate: 8000,
   });
 
-  // 🔁 Ta emot transkript från Deepgram
   deepgramLive.on("transcriptReceived", async (data) => {
     const transcript = JSON.parse(data);
     const text = transcript.channel.alternatives[0]?.transcript;
@@ -44,7 +42,6 @@ function startMediaServer(ws) {
     console.error("❌ Deepgram-fel:", err.message);
   });
 
-  // 🎧 Ta emot ljud från Twilio
   ws.on("message", (msg) => {
     const data = JSON.parse(msg);
 
@@ -66,4 +63,3 @@ function startMediaServer(ws) {
 }
 
 module.exports = { startMediaServer };
-
