@@ -87,7 +87,7 @@ async function sendGreeting(ws, streamSid) {
     if (!wavBuf.length) throw new Error('Tomt ljud från Eleven');
 
     // 2 Strip 44-byte WAV-header → rå μ-law-data
-    const muLaw = wavBuf.slice(44);
+    const muLaw = Buffer.from(wavBuf);
     console.log('🎤 Hämtade', muLaw.length, 'bytes μ-law');
 
     // 3 Skicka 20 ms-ramar (160 byte) till Twilio
