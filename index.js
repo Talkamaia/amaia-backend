@@ -25,6 +25,12 @@ app.post('/incoming-call', (req, res) => {
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () =>
   console.log('Amaia backend lyssnar på', PORT)
+if (process.env.ELEVEN_API_KEY) {
+  const tail = process.env.ELEVEN_API_KEY.slice(-4);
+  console.log('🔑 ElevenLabs-nyckel laddad (…' + tail + ')');
+} else {
+  console.log('⚠️  Ingen ELEVEN_API_KEY i env');
+}
 );
 
 // ===== WebSocket för Twilio Media Streams =====
