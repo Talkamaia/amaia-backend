@@ -1,7 +1,11 @@
-// mediaServer.js – kompatibel med Deepgram SDK v3
+// mediaServer.js – kompatibel med Deepgram SDK v3.13
 require("dotenv").config();
 const WebSocket = require("ws");
-const { Deepgram } = require("@deepgram/sdk");
+
+// ✅ V3-import & init (ingen new, inget options-objekt)
+const { createClient } = require("@deepgram/sdk");
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+
 const twilio = require("twilio")(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
@@ -10,30 +14,28 @@ const twilio = require("twilio")(
 const askGPT = require("./gpt");
 const synth  = require("./eleven");
 
-const deepgram = new Deepgram({ apiKey: process.env.DEEPGRAM_API_KEY });
-
 function startMediaServer(server) {
   const wss = new WebSocket.Server({ server });
 
   wss.on("connection", (ws) => {
     console.log("🟢 Twilio Media Stream ansluten");
 
-    // v3-init
+    // ✅ V3-stream: listen.live
     const dgLive = deepgram.listen.live({
-      model: "nova-2",
-      language: "sv",
-      encoding: "mulaw",
-      sampleRate: 8000,
-      interimResults: false,
-      smart_format: true
+      model:        "nova-2",
+      language:     "sv",
+      encoding:     "mulaw",
+      sample_rate:  8000,
+      interim_results: false,
+      smart_format:    true
     });
 
-    /* --- WebSocket events --- */
+    /* ---------- WS events ---------- */
     ws.on("message", (msg) => {
       const data = JSON.parse(msg);
 
       if (data.event === "start") {
-        ws.callSid = data.start.callSid;
+        ws.callSid = data.start.callSid;           // spara callSid
         return;
       }
 
@@ -46,7 +48,7 @@ function startMediaServer(server) {
 
     ws.on("close", () => dgLive.end());
 
-    /* --- Deepgram → GPT → ElevenLabs → Twilio --- */
+    /* ---------- Deepgram → GPT → ElevenLabs → Twilio ---------- */
     dgLive.on("transcriptReceived", async (dgMsg) => {
       const text = dgMsg.channel.alternatives[0]?.transcript?.trim();
       if (!text) return;
@@ -63,16 +65,17 @@ function startMediaServer(server) {
         await twilio
           .calls(ws.callSid)
           .update({ twiml: `<Response><Play>${playUrl}</Play></Response>` });
+
         console.log("📤 TwiML uppdaterad");
-      } catch (e) {
-        console.error("❌ Fel i pipeline:", e.message);
+      } catch (err) {
+        console.error("❌ Fel i pipeline:", err.message);
       }
     });
 
     dgLive.on("error", (e) => console.error("❌ Deepgram:", e.message));
   });
 
-  console.log("🎧 MediaServer kör (DG v3)");
+  console.log("🎧 MediaServer kör (DG v3.13)");
 }
 
 module.exports = { startMediaServer };
