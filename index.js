@@ -1,48 +1,24 @@
-// index.js – Twilio Media Streams med WebSocket
-require("dotenv").config();
-const express = require("express");
-const bodyParser = require("body-parser");
-const { create } = require("xmlbuilder2");
-const http = require("http");
-const { startMediaServer } = require("./mediaServer");
+const express = require('express');
+const { twiml: { VoiceResponse } } = require('twilio');
 
 const app = express();
-const server = http.createServer(app);
-const port = process.env.PORT || 10000;
+app.use(express.urlencoded({ extended: false }));
 
-/* 🔍  Tillfällig logg: visar varje inkommande HTTP-request */
-app.use((req, _res, next) => {
-  console.log("↘️  Received", req.method, req.originalUrl);
-  next();
+app.post('/incoming-call', (req, res) => {
+  const twiml = new VoiceResponse();
+
+  // hälsningsfras
+  twiml.say('Ge mig bara en sekund, älskling...');
+
+  // ✔ blockerande stream som stannar tills *du* stänger WebSocket-en
+  const connect = twiml.connect();
+  connect.stream({
+    url: 'wss://amaia-backend-1.onrender.com/media',
+    bidirectional: true          // ← viktigt!
+  });
+
+  res.type('text/xml').send(twiml.toString());
 });
 
-/* 📁 Ljudfiler + JSON-body */
-app.use("/audio", express.static("public/audio"));
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-
-/* 📞 Inkommande samtal från Twilio → starta media stream */
-app.post("/incoming-call", (req, res) => {
-  console.log("📞 Inkommande samtal från:", req.body.From);
-
-  const twiml = create({ version: "1.0" })
-    .ele("Response")
-      .ele("Say").txt("Ge mig bara en sekund, älskling...").up()
-      .ele("Pause", { length: 1 }).up()
-      .ele("Start")
-        .ele("Stream", {
-          url: "wss://amaia-backend-1.onrender.com/media",
-          track: "inbound_audio"
-        }).up()
-      .up()
-    .up()
-    .end({ prettyPrint: false });
-
-  res.type("text/xml").send(twiml);
-});
-
-/* 🛰️  Starta servern */
-server.listen(port, () => {
-  console.log(`✅ Amaia backend live på port ${port}`);
-});
-startMediaServer(server);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log('Amaia backend lyssnar på', PORT));
