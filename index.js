@@ -55,22 +55,47 @@ wss.on('connection', (ws) => {
 });
 
 // === Hämta & skicka ElevenLabs‑ljud (ulaw_8000) ==============================
+// === Hämta & skicka ElevenLabs-ljud (ulaw_8000) ==============================
 async function sendGreeting(ws, streamSid) {
   try {
     const apiKey  = process.env.ELEVEN_API_KEY;
     const voiceId = process.env.ELEVEN_VOICE_ID;
     if (!apiKey || !voiceId) throw new Error('Missing Eleven env');
 
-    /* 1. Hämta färdig μ‑law 8 kHz direkt från Eleven */
-    const { data: muLawBuf } = await axios.post(
+    /* 1. Hämta WAV (ulaw_8000) från ElevenLabs */
+    const { data: wavBuf } = await axios.post(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
         text: 'Hej! Nu är jag med på linjen.',
         model_id: 'eleven_multilingual_v2',
-        output_format: 'ulaw_8000',           // ← direkt rätt codec
+        output_format: 'ulaw_8000',
         optimize_streaming_latency: 0
       },
       { responseType: 'arraybuffer', headers: { 'xi-api-key': apiKey } }
+    );
+
+    if (!wavBuf.length) throw new Error('Empty audio from Eleven');
+
+    /* 2. Strip 44‑byte WAV header → rå μ‑law */
+    const muLawBuf = wavBuf.slice(44);
+    console.log('🎤 Hämtade', muLawBuf.length, 'bytes μ-law utan header');
+
+    /* 3. Skicka 20 ms‑ramar (160 byte) till Twilio */
+    const CHUNK = 160;
+    for (let i = 0; i < muLawBuf.length; i += CHUNK) {
+      const payload = muLawBuf.slice(i, i + CHUNK).toString('base64');
+      ws.send(JSON.stringify({
+        event: 'media',
+        streamSid,
+        media: { payload, track: 'outbound' }
+      }));
+      await new Promise(r => setTimeout(r, 20));
+    }
+    console.log('🗣️  Hälsning skickad');
+  } catch (err) {
+    console.error('❌ Fel i sendGreeting', err.message);
+  }
+}
     );
 
     if (!muLawBuf.length) throw new Error('Empty audio from Eleven');
