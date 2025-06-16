@@ -39,6 +39,47 @@ const wss = new WebSocket.Server({ server, path: '/media' });
 wss.on('connection', ws => {
   console.log('🔗 Twilio WebSocket ansluten');
 
+  // === Test: hämta 1 sekund Amaia-TTS när linjen öppnar ===
+  const axios = require('axios');
+  (async () => {
+    try {
+      const apiKey = process.env.ELEVEN_API_KEY;
+      const voiceId = process.env.ELEVEN_VOICE_ID;
+      if (!apiKey || !voiceId) return;
+
+      const resp = await axios.post(
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+        { text: 'Hej! Nu är jag med på linjen.', model_id: 'eleven_multilingual_v2', voice_settings: { stability: 0.5, similarity_boost: 0.8 } },
+        { responseType: 'arraybuffer', headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' } }
+      );
+
+      console.log('🎤 Hämtade Amaia-TTS', resp.data.byteLength, 'byte');
+    } catch (e) {
+      console.error('❌ ElevenLabs-fel', e.response?.status, e.response?.data?.error || e.message);
+    }
+  })();
+
+  \n  // === Test: hämta 1 sekund Amaia-TTS när linjen öppnar ===
+  const axios = require('axios');
+  (async () => {
+    try {
+      const apiKey = process.env.ELEVEN_API_KEY;
+      const voiceId = process.env.ELEVEN_VOICE_ID;
+
+      const resp = await axios.post(
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+        { text: 'Hej! Nu är jag med på linjen.', model_id: 'eleven_multilingual_v2', voice_settings: { stability: 0.5, similarity_boost: 0.8 } },
+        { responseType: 'arraybuffer', headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' } }
+      );
+
+      // ⛔ TODO: konvertera -> 8 kHz μ-law • Nu loggar vi bara storleken
+      console.log('🎤 Hämtade Amaia-TTS', resp.data.byteLength, 'byte');
+    } catch (e) {
+      console.error('❌ ElevenLabs-fel', e.response?.status, e.response?.data?.error || e.message);
+    }
+  })();
+
+
   ws.on('ping', () => ws.pong());
   ws.on('message', () => { /* TODO: STT → GPT → TTS */ });
   ws.on('close', () => console.log('🚪 WebSocket stängd'));
