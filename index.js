@@ -1,18 +1,19 @@
-// Amaia backend – full working example with Twilio Media Streams + ElevenLabs TTS (outbound)
+// Amaia backend – full working example with Twilio Media Streams + ElevenLabs TTS
 // -----------------------------------------------------------------------------
 // ENV required (Render):
 //   ELEVEN_API_KEY   – your ElevenLabs API key
-//   ELEVEN_VOICE_ID  – temp Swedish voice (ready) or Amaia clone when status = "Ready"
+//   ELEVEN_VOICE_ID  – Swedish temp voice (ready) OR Amaia clone when status = "Ready"
 //
-// 2025‑06‑16 – includes outbound μ‑law frames with streamSid
+// Run on Node 20/22. Converts Eleven MP3 → 8 kHz μ-law and streams back to caller.
 // -----------------------------------------------------------------------------
 
 const express = require('express');
 const { twiml: { VoiceResponse } } = require('twilio');
 const WebSocket = require('ws');
 const axios = require('axios');
+const streamifier = require('streamifier');
 
-// === μ‑law helpers + FFmpeg ==================================================
+// === μ-law helpers + FFmpeg ==================================================
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -52,8 +53,8 @@ app.post('/incoming-call', (req, res) => {
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   console.log('Amaia backend lyssnar på', PORT);
-  console.log('🔑 ElevenLabs‑nyckel laddad (…' + (process.env.ELEVEN_API_KEY || '').slice(-4) + ')');
-  console.log('🎙️  Voice‑ID ' + (process.env.ELEVEN_VOICE_ID || 'MISSING'));
+  console.log('🔑 ElevenLabs‑nyckel laddad …' + (process.env.ELEVEN_API_KEY || '').slice(-4));
+  console.log('🎙️  Voice‑ID', process.env.ELEVEN_VOICE_ID || 'MISSING');
 });
 
 // ===== WebSocket för Twilio Media Streams ===================================
@@ -82,25 +83,24 @@ wss.on('connection', (ws) => {
   ws.on('close', () => console.log('🚪 WebSocket stängd'));
 });
 
-// === Funktion som hämtar & skickar TTS‑hälsning ==============================
+// === Funktion som hämtar & skickar TTS-hälsning ==============================
 async function sendGreeting(ws, streamSid) {
   try {
     const apiKey  = process.env.ELEVEN_API_KEY;
     const voiceId = process.env.ELEVEN_VOICE_ID;
-    if (!apiKey || !voiceId) throw new Error('missing Eleven env');
+    if (!apiKey || !voiceId) throw new Error('Missing Eleven env');
 
     // 1. Hämta MP3 från ElevenLabs
     const { data: mp3 } = await axios.post(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       { text: 'Hej! Nu är jag med på linjen.', model_id: 'eleven_multilingual_v2' },
-      { responseType: 'arraybuffer', headers: { 'xi-api-key': apiKey } }
+      { responseType: 'arraybuffer', headers: { 'xi-api-key': apiKey } },
     );
 
     // 2. MP3 → rå 8 kHz mono PCM
     const pcmChunks = [];
     await new Promise((resolve, reject) => {
-      ffmpeg()
-        .input(Buffer.from(mp3))
+      ffmpeg(streamifier.createReadStream(mp3))
         .inputFormat('mp3')
         .audioFrequency(8000)
         .audioChannels(1)
@@ -111,8 +111,9 @@ async function sendGreeting(ws, streamSid) {
         .on('error', reject)
         .pipe();
     });
+
     const muLaw = pcmBufToMuLaw(Buffer.concat(pcmChunks));
-    console.log('🎤 Hämtade & konverterade', muLaw.length, 'bytes mu‑law');
+    console.log('🎤 Hämtade & konverterade', muLaw.length, 'bytes μ‑law');
 
     // 3. Skicka 20 ms (160‑byte) ramar till Twilio
     const CHUNK = 160;
@@ -125,7 +126,7 @@ async function sendGreeting(ws, streamSid) {
       }));
       await new Promise((r) => setTimeout(r, 20));
     }
-    console.log('🗣️  Amaia-hälsning skickad');
+    console.log('🗣️  Amaia‑hälsning skickad');
   } catch (err) {
     console.error('❌ Fel i sendGreeting', err.message);
   }
