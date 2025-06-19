@@ -1,24 +1,25 @@
-console.log('=== LOADED *NY* INDEX.JS', new Date().toISOString());
 /**
  * index.js – Amaia-backend
- * Express + Twilio TwiML + WebSocket‐server för telefonrösten
- * Chatten (/chat) använder samma handleChat som tidigare.
+ * • /chat  – fortsätter att använda din gamla handleChat-logik
+ * • /incoming-call – öppnar bidirektionell WebSocket-ström (16 kHz PCM)
+ * • startMediaServer – hanterar Twilio ↔ Deepgram ↔ GPT ↔ ElevenLabs
  */
+
 require('dotenv').config();
 
-const express   = require('express');
-const http      = require('http');
+const express  = require('express');
+const http     = require('http');
 const { twiml: { VoiceResponse } } = require('twilio');
 
 const { startMediaServer } = require('./mediaServer');
-const { handleChat }       = require('./src/chatHandler');   // <-- DIN gamla chatt‐logik
+const { handleChat }       = require('./src/chatHandler'); // ← din befintliga chat-modul
 
 /* ---------- Express-app ---------- */
 const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-/* --- REST: Chat-endpoint (fungerar som innan) --- */
+/* === REST: Chat (oförändrad) =================================== */
 app.post('/chat', async (req, res) => {
   try {
     const { phone, message } = req.body;
@@ -30,34 +31,33 @@ app.post('/chat', async (req, res) => {
   }
 });
 
-/* --- Liten health-check (för Render “Keep Alive”) --- */
+/* === Health-ping (Render’s keep-alive) ========================= */
 app.get('/health', (_, res) => res.send('OK'));
 
-/* --- Twilio: inkommande samtal → öppna bidirectional stream --- */
+/* === Inkommande samtal från Twilio ============================= */
 app.post('/incoming-call', (_, res) => {
-  const vr = new VoiceResponse();
+  const vr  = new VoiceResponse();
 
-  // Bygg wss://-URL automatiskt från PUBLIC_DOMAIN
-  const wssUrl = process.env.PUBLIC_DOMAIN
-    .replace(/^https?:/, 'wss:')          // https -> wss
-    .replace(/\/$/, '') + '/media';       // lägg till /media
+  // Bygg WebSocket-URL automatiskt från PUBLIC_DOMAIN
+  const wss = process.env.PUBLIC_DOMAIN
+    .replace(/^https?/, 'wss')         // https -> wss
+    .replace(/\/$/, '') + '/media';    // lägg till /media-path
 
   vr.connect().stream({
-    url:        wssUrl,
-    track:      'both',                   // två-vägs-stream
-    contentType:'audio/l16;rate=16000'    // PCM 16 kHz = rent för ElevenLabs
+    url: wss,
+    track: 'both_tracks',              // in- & ut-ljud
+    'content-type': 'audio/l16;rate=16000' // bindestreck är KRITISKT!
   });
 
-  // (Ingen extra <Say> här – Amaia pratar direkt via stream)
   res.type('text/xml').send(vr.toString());
 });
 
-/* ---------- Starta HTTP-server + WebSocket-MediaServer ---------- */
+/* ---------- Starta HTTP-server + MediaServer-WS ---------------- */
 const server = http.createServer(app);
-startMediaServer(server);                 // ← startar Twilio-Media WS
+startMediaServer(server);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log('🎧 MediaServer kör');
-  console.log(`🚀 Amaia backend live på ${PORT}`);
+  console.log('🎧 MediaServer kör');          // ska synas i Render-logg
+  console.log('🚀 Amaia backend live på', PORT);
 });
