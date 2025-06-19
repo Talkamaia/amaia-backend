@@ -1,81 +1,75 @@
-// mediaServer.js – kompatibel med Deepgram SDK v3.13
-require("dotenv").config();
-const WebSocket = require("ws");
-
-// ✅ V3-import & init (ingen new, inget options-objekt)
-const { createClient } = require("@deepgram/sdk");
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
-
-const twilio = require("twilio")(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
-
-const askGPT = require("./gpt");
-const synth  = require("./eleven");
+// mediaServer.js
+require('dotenv').config();
+const WebSocket   = require('ws');
+const fetch       = require('node-fetch');
+const { newSocket } = require('./stt');
+const askGPT      = require('./gpt');
 
 function startMediaServer(server) {
-  const wss = new WebSocket.Server({ server });
+  const wss = new WebSocket.Server({ server, path: '/media' });
 
-  wss.on("connection", (ws) => {
-    console.log("🟢 Twilio Media Stream ansluten");
+  wss.on('connection', (twilioWS) => {
+    console.log('🔗 Twilio stream ansluten');
 
-    // ✅ V3-stream: listen.live
-    const dgLive = deepgram.listen.live({
-      model:        "nova-2",
-      language:     "sv",
-      encoding:     "mulaw",
-      sample_rate:  8000,
-      interim_results: false,
-      smart_format:    true
+    /* 1. starta STT-socket */
+    const dg = newSocket(handleUserText);
+
+    /* 2. ta emot ljud från Twilio → STT */
+    twilioWS.on('message', buf => {
+      const d = JSON.parse(buf);
+
+      if (d.event === 'media') {
+        const pcm = Buffer.from(d.media.payload, 'base64');
+        dg.send(pcm);                                 // pumpa in
+      }
+      if (d.event === 'stop') dg.finish();
     });
 
-    /* ---------- WS events ---------- */
-    ws.on("message", (msg) => {
-      const data = JSON.parse(msg);
-
-      if (data.event === "start") {
-        ws.callSid = data.start.callSid;           // spara callSid
-        return;
-      }
-
-      if (data.event === "media" && data.media?.payload) {
-        dgLive.write(Buffer.from(data.media.payload, "base64"));
-      }
-
-      if (data.event === "stop") dgLive.end();
-    });
-
-    ws.on("close", () => dgLive.end());
-
-    /* ---------- Deepgram → GPT → ElevenLabs → Twilio ---------- */
-    dgLive.on("transcriptReceived", async (dgMsg) => {
-      const text = dgMsg.channel.alternatives[0]?.transcript?.trim();
-      if (!text) return;
-
-      console.log("🗣 Användaren sa:", text);
-
-      try {
-        const reply = await askGPT(text);
-        console.log("🤖 GPT svarar:", reply);
-
-        const filename = await synth(reply);
-        const playUrl  = `${process.env.PUBLIC_DOMAIN}/audio/${filename}`;
-
-        await twilio
-          .calls(ws.callSid)
-          .update({ twiml: `<Response><Play>${playUrl}</Play></Response>` });
-
-        console.log("📤 TwiML uppdaterad");
-      } catch (err) {
-        console.error("❌ Fel i pipeline:", err.message);
-      }
-    });
-
-    dgLive.on("error", (e) => console.error("❌ Deepgram:", e.message));
+    twilioWS.on('close', () => dg.finish());
   });
 
-  console.log("🎧 MediaServer kör (DG v3.13)");
+  async function handleUserText(text) {
+    console.log('🗣', text);
+
+    /* GPT-svar */
+    let reply;
+    try {
+      reply = await askGPT(text);
+    } catch (e) {
+      console.error('GPT-fel', e);
+      reply = 'Förlåt, jag hörde inte riktigt...';
+    }
+    console.log('🤖', reply);
+
+    /* ElevenLabs-stream */
+    const resp = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_VOICE_ID}/stream`,
+      {
+        method: 'POST',
+        headers: {
+          'xi-api-key': process.env.ELEVEN_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: reply,
+          model_id: 'eleven_multilingual_v2',
+          output_format: 'pcm_16000',
+          optimize_streaming_latency: 0          // 0 = musik, 4 = lägst latens
+        })
+      }
+    );
+
+    /* 3. skicka chunk-för-chunk till ALLA öppna Twilio-WS */
+    for await (const chunk of resp.body) {
+      const payload = chunk.toString('base64');
+      wss.clients.forEach(ws => {
+        if (ws.readyState === WebSocket.OPEN)
+          ws.send(JSON.stringify({ event: 'media', media: { payload } }));
+      });
+    }
+  }
+
+  console.log('🎧 MediaServer kör');
 }
 
 module.exports = { startMediaServer };
