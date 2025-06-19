@@ -1,3 +1,4 @@
+console.log('=== LOADED *NY* INDEX.JS', new Date().toISOString());
 /**
  * index.js – Amaia-backend
  * Express + Twilio TwiML + WebSocket‐server för telefonrösten
