@@ -1,12 +1,4 @@
-// Amaia backend – Twilio Media Streams ⇄ ElevenLabs (rå μ-law 8 kHz)
-// ------------------------------------------------------------------
-// ENV på Render:
-//   OPENAI_API_KEY    – GPT-nyckel
-//   ELEVEN_API_KEY    – ElevenLabs-nyckel
-//   ELEVEN_VOICE_ID   – t.ex. Amaia-röstens ID
-// ------------------------------------------------------------------
-
-require('dotenv').config(); // Läser .env om du kör lokalt
+require('dotenv').config();
 const express  = require('express');
 const { twiml: { VoiceResponse } } = require('twilio');
 const WebSocket = require('ws');
@@ -15,30 +7,22 @@ const { handleChat } = require('./src/chatHandler');
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json()); // Om du vill skicka JSON från frontend
+app.use(express.json());
 
-// POST-endpoint för chatt från frontend (valfritt)
+// POST-endpoint för chatt
 app.post('/chat', async (req, res) => {
   const { phone, message } = req.body;
-  const result = await handleChat({
-    userId: phone,
-    message,
-    memory: []
-  });
+  const result = await handleChat(phone, message);
   res.json(result);
 });
 
-// ✅ Test-endpoint för GPT-funktion
+// GET-endpoint för test av GPT
 app.get('/test-chat', async (req, res) => {
-  const result = await handleChat({
-    userId: 'test-amaia',
-    message: 'Hej Amaia, vad tänker du på just nu?',
-    memory: []
-  });
+  const result = await handleChat('test-amaia', 'Hej Amaia, vad tänker du på just nu?');
   res.json(result);
 });
 
-// Twilio ringer in → starta WebSocket-ström
+// Twilio ringer → connecta WebSocket
 app.post('/incoming-call', (_, res) => {
   const twiml = new VoiceResponse();
   const connect = twiml.connect();
@@ -58,7 +42,7 @@ const server = app.listen(PORT, () => {
   console.log('🎙️ Voice   …' + (process.env.ELEVEN_VOICE_ID || 'MISSING'));
 });
 
-// WebSocket-server för Twilio Media Streams
+// WebSocket-server för Twilio
 const wss = new WebSocket.Server({ server, path: '/media' });
 
 wss.on('connection', (ws) => {
@@ -84,7 +68,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => console.log('🚪 WebSocket stängd'));
 });
 
-// Funktion för att strömma μ-law till Twilio
+// TTS-hälsning via ElevenLabs
 async function sendGreeting(ws, sid) {
   try {
     const apiKey  = process.env.ELEVEN_API_KEY;

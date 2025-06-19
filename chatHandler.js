@@ -1,4 +1,3 @@
-// chatHandler.js
 require('dotenv').config();
 const { ChatOpenAI } = require('langchain/chat_models/openai');
 const { HumanMessage, AIMessage } = require('langchain/schema');
