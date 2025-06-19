@@ -1,11 +1,14 @@
 require('dotenv').config();
-const { ChatOpenAI } = require('langchain/chat_models/openai');
 const fs = require('fs');
 const path = require('path');
+const { OpenAI } = require('openai');
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
 const chatDBPath = path.join(__dirname, '../user_balances.json');
 
-// 🔄 Ladda & spara användarsaldo + historik
 function loadDB() {
   try {
     return JSON.parse(fs.readFileSync(chatDBPath, 'utf8'));
@@ -18,7 +21,6 @@ function saveDB(data) {
   fs.writeFileSync(chatDBPath, JSON.stringify(data, null, 2));
 }
 
-// ➕ Lägg till historik
 function saveChatMessage(phone, role, content) {
   const db = loadDB();
   db[phone] = db[phone] || { voiceMinutes: 0, chatMessages: 0, chatHistory: [] };
@@ -27,7 +29,6 @@ function saveChatMessage(phone, role, content) {
   saveDB(db);
 }
 
-// 🔧 Huvudfunktion
 async function handleChat(phone, userInput) {
   const db = loadDB();
   const user = db[phone];
@@ -56,16 +57,16 @@ async function handleChat(phone, userInput) {
     }
   ];
 
-  const chatModel = new ChatOpenAI({
-    openAIApiKey: process.env.OPENAI_API_KEY,
-    temperature: 0.8,
-    modelName: "gpt-4o"
+  const chatResponse = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages,
+    temperature: 0.8
   });
 
-  const response = await chatModel.call(messages);
+  const gptReply = chatResponse.choices[0].message.content;
 
   saveChatMessage(phone, 'user', userInput);
-  saveChatMessage(phone, 'assistant', response.content);
+  saveChatMessage(phone, 'assistant', gptReply);
   saveDB(db);
 
   let extraNote = "";
@@ -75,7 +76,7 @@ async function handleChat(phone, userInput) {
 
   return {
     status: 'ok',
-    message: response.content + extraNote,
+    message: gptReply + extraNote,
     remaining: user.chatMessages
   };
 }
