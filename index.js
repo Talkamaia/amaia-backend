@@ -35,7 +35,7 @@ app.post('/incoming-call', (_, res) => {
 
 // Starta server
 const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('Amaia backend lyssnar på', PORT);
   console.log('🔑 OpenAI …' + (process.env.OPENAI_API_KEY  || '').slice(-4));
   console.log('🔑 Eleven …' + (process.env.ELEVEN_API_KEY  || '').slice(-4));
