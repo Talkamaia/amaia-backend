@@ -43,12 +43,11 @@ app.post('/incoming-call', (_, res) => {
     .replace(/^https?/, 'wss')         // https -> wss
     .replace(/\/$/, '') + '/media';    // lägg till /media-path
 
-  vr.connect().stream({
-    url: wss,
-    track: 'both_tracks',              // in- & ut-ljud
-    'content-type': 'audio/l16;rate=16000' // bindestreck är KRITISKT!
-  });
-
+ vr.connect().stream({
+  url: wss,
+  track: 'both',                      // ← rätt värde
+  'content-type': 'audio/l16;rate=16000'
+});
   res.type('text/xml').send(vr.toString());
 });
 
