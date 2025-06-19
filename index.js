@@ -18,8 +18,15 @@ app.post('/chat', async (req, res) => {
 
 // GET-endpoint för test av GPT
 app.get('/test-chat', async (req, res) => {
-  const result = await handleChat('test-amaia', 'Hej Amaia, vad tänker du på just nu?');
-  res.json(result);
+  console.log('📩 /test-chat blev anropad!');
+  try {
+    const result = await handleChat('test-amaia', 'Hej Amaia, vad tänker du på just nu?');
+    console.log('✅ GPT-svar:', result);
+    res.json(result);
+  } catch (error) {
+    console.error('❌ Fel i /test-chat:', error.message);
+    res.status(500).json({ error: 'Fel i test-chat' });
+  }
 });
 
 // Twilio ringer → connecta WebSocket
