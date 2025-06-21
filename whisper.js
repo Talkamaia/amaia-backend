@@ -1,21 +1,17 @@
-require("dotenv").config();
-const fs = require("fs");
-const axios = require("axios");
-const FormData = require("form-data");
+import OpenAI from "openai";
+import fs from "fs";
 
-async function transcribeAudio(filepath) {
-  const form = new FormData();
-  form.append("file", fs.createReadStream(filepath));
-  form.append("model", "whisper-1");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  const response = await axios.post("https://api.openai.com/v1/audio/transcriptions", form, {
-    headers: {
-      ...form.getHeaders(),
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
+export async function transcribe(buffer) {
+  const filePath = "/tmp/input.wav";
+  fs.writeFileSync(filePath, buffer);
+
+  const transcript = await openai.audio.transcriptions.create({
+    file: fs.createReadStream(filePath),
+    model: "whisper-1",
+    language: "sv"
   });
 
-  return response.data.text;
+  return transcript.text;
 }
-
-module.exports = { transcribeAudio };

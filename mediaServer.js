@@ -1,75 +1,58 @@
-// mediaServer.js
-require('dotenv').config();
-const WebSocket   = require('ws');
-const fetch       = require('node-fetch');
-const { newSocket } = require('./stt');
-const askGPT      = require('./gpt');
+import { Deepgram } from '@deepgram/sdk';
+import { handleChat } from './gpt.js';
+import { speak } from './eleven.js';
 
-function startMediaServer(server) {
-  const wss = new WebSocket.Server({ server, path: '/media' });
+export const mediaServer = (socket, config) => {
+  const dg = new Deepgram(config.DEEPGRAM_API_KEY);
+  let stream;
+  let lastResponseTime = 0;
+  const cooldownMs = 3000; // 3 sekunders mellanrum mellan svar
 
-  wss.on('connection', (twilioWS) => {
-    console.log('🔗 Twilio stream ansluten');
+  socket.on('media', async ({ media }) => {
+    if (!stream) {
+      stream = dg.transcription.live({ smart_format: true });
 
-    /* 1. starta STT-socket */
-    const dg = newSocket(handleUserText);
+      stream.on('transcriptReceived', async (data) => {
+        console.log('🧪 RAW Deepgram:', data);
 
-    /* 2. ta emot ljud från Twilio → STT */
-    twilioWS.on('message', buf => {
-      const d = JSON.parse(buf);
+        try {
+          const transcript = JSON.parse(data)?.channel?.alternatives?.[0]?.transcript;
+          console.log('👂 Transkriberat:', transcript);
 
-      if (d.event === 'media') {
-        const pcm = Buffer.from(d.media.payload, 'base64');
-        dg.send(pcm);                                 // pumpa in
-      }
-      if (d.event === 'stop') dg.finish();
-    });
+          if (transcript && transcript.trim().length > 1) {
+            const now = Date.now();
 
-    twilioWS.on('close', () => dg.finish());
-  });
+            if (now - lastResponseTime < cooldownMs) {
+              console.log('⏳ Ignorerar (cooldown):', transcript);
+              return;
+            }
 
-  async function handleUserText(text) {
-    console.log('🗣', text);
+            console.log('👂 Kund:', transcript);
+            lastResponseTime = now;
 
-    /* GPT-svar */
-    let reply;
-    try {
-      reply = await askGPT(text);
-    } catch (e) {
-      console.error('GPT-fel', e);
-      reply = 'Förlåt, jag hörde inte riktigt...';
-    }
-    console.log('🤖', reply);
+            const reply = await handleChat(transcript, socket.id); // socket.id är unikt för varje samtal
+            console.log('🗣️ Amaia säger:', reply);
+            console.log('🤖 Amaia:', reply);
 
-    /* ElevenLabs-stream */
-    const resp = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_VOICE_ID}/stream`,
-      {
-        method: 'POST',
-        headers: {
-          'xi-api-key': process.env.ELEVEN_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          text: reply,
-          model_id: 'eleven_multilingual_v2',
-          output_format: 'pcm_16000',
-          optimize_streaming_latency: 0          // 0 = musik, 4 = lägst latens
-        })
-      }
-    );
-
-    /* 3. skicka chunk-för-chunk till ALLA öppna Twilio-WS */
-    for await (const chunk of resp.body) {
-      const payload = chunk.toString('base64');
-      wss.clients.forEach(ws => {
-        if (ws.readyState === WebSocket.OPEN)
-          ws.send(JSON.stringify({ event: 'media', media: { payload } }));
+            const audio = await speak(reply);
+            console.log('🔊 Audio buffer (first 50 bytes):', audio?.slice(0, 50));
+            socket.emit('audio', { audio });
+          }
+        } catch (err) {
+          console.error('🚨 Fel i transcriptReceived:', err);
+        }
       });
     }
-  }
 
-  console.log('🎧 MediaServer kör');
-}
+    try {
+      stream.write(Buffer.from(media.payload, 'base64'));
+    } catch (err) {
+      console.error('🚨 Fel vid stream.write:', err);
+    }
+  });
 
-module.exports = { startMediaServer };
+  socket.on('disconnect', () => {
+    if (stream) stream.finish();
+    console.log('📴 Media stream avslutad');
+  });
+};

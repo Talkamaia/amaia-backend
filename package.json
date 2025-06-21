@@ -1,27 +1,17 @@
 {
   "name": "amaia-backend",
-  "version": "1.1.0",
-  "description": "AI-röstbackend för Amaia – Twilio ⋅ GPT-4o ⋅ ElevenLabs",
+  "version": "1.0.0",
+  "type": "module",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@deepgram/sdk": "^3.13.0",
-    "axios": "^1.10.0",
+    "axios": "^1.6.8",
     "body-parser": "^1.20.2",
-    "dotenv": "^16.4.5",
-    "elevenlabs": "^1.59.0",
-    "express": "^4.18.2",
-    "ffmpeg-static": "^5.2.0",
-    "fluent-ffmpeg": "^2.1.3",
-    "langchain": "^0.3.28",
-    "openai": "^4.19.1",
-    "path": "^0.12.7",
-    "streamifier": "^0.1.1",
-    "twilio": "^4.15.0",
-    "uuid": "^9.0.0",
-    "ws": "^8.13.0",
-    "xmlbuilder2": "^3.0.2"
+    "express": "^4.19.2",
+    "openai": "^4.26.0",
+    "uuid": "^9.0.1",
+    "ws": "^8.13.0"
   }
 }
