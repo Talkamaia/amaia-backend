@@ -13,15 +13,15 @@ const PORT = process.env.PORT || 10000;
 const app = express();
 const server = createServer(app);
 
-// 🔊 Serve audio files (if needed)
+// Serva ljudfiler (om du vill)
 app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 
-// ✅ Test route
+// Test-rutt
 app.get('/', (req, res) => {
-  res.send('✅ Amaia backend med WebSocket live');
+  res.send('✅ Amaia backend med WebSocket är igång');
 });
 
-// 🔌 WebSocket + Deepgram + GPT + ElevenLabs
+// WebSocket + Deepgram + GPT + ElevenLabs
 const wss = new WebSocketServer({ server });
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
@@ -44,7 +44,7 @@ wss.on('connection', async (ws) => {
       console.log('🗣️ Kunden sa:', transcript);
 
       const gptResponse = await askGPT(transcript);
-      console.log('🤖 GPT:', gptResponse);
+      console.log('🤖 GPT-svar:', gptResponse);
 
       const audioBuffer = await speak(gptResponse, filepath);
 
@@ -87,7 +87,7 @@ wss.on('connection', async (ws) => {
   });
 });
 
-// 🚀 Start server
+// Starta servern
 server.listen(PORT, () => {
-  console.log(`✅ Amaia backend + WS live på port ${PORT}`);
+  console.log(`✅ Amaia backend + WebSocket live på port ${PORT}`);
 });
