@@ -1,74 +1,70 @@
-const { createClient } = require('@deepgram/sdk');
-const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
-const path = require('path');
+const WebSocket = require('ws');
+const { Deepgram } = require('@deepgram/sdk');
 const { speak } = require('./eleven');
 const { getGptResponse } = require('./gpt');
 require('dotenv').config();
+const path = require('path');
 
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+const deepgram = new Deepgram(process.env.DEEPGRAM_API_KEY);
 
-async function startTranscription(ws, callSid) {
-  if (!callSid) {
-    console.warn('❌ Saknar CallSid – WS avbryts');
-    ws.close();
-    return;
-  }
+let latestAudioUrl = null;
 
-  console.log(`🎙️ Startar transkribering för ${callSid}`);
+const wss = new WebSocket.Server({ port: 10001 }, () => {
+  console.log('🎧 MediaServer live på ws://localhost:10001');
+});
 
-  const dgSocket = deepgram.listen.live({
-    model: 'nova',
-    language: 'sv',
+wss.on('connection', (ws) => {
+  console.log('📞 Ny samtalsanslutning');
+
+  const dgSocket = deepgram.transcription.live({
     punctuate: true,
-    interim_results: false,
-  });
-
-  dgSocket.on('open', () => {
-    console.log('🧠 Deepgram WebSocket öppen');
-  });
-
-  dgSocket.on('error', (error) => {
-    console.error('🚨 Deepgram fel:', error);
-  });
-
-  dgSocket.on('transcriptReceived', async (data) => {
-    const transcript = data.channel.alternatives[0]?.transcript;
-    if (!transcript || transcript.length < 1) return;
-
-    console.log(`👂 Kunde höras: ${transcript}`);
-
-    try {
-      const reply = await getGptResponse(transcript);
-      console.log(`💬 Amaia svarar: ${reply}`);
-
-      const filepath = `/tmp/${uuidv4()}.mp3`;
-      await speak(reply, filepath);
-
-      const filename = filepath.split('/').pop();
-      const twiml = `<Response><Play>${process.env.BASE_URL}/audio/${filename}</Play></Response>`;
-      ws.send(JSON.stringify({ twiml }));
-    } catch (err) {
-      console.error('❌ GPT eller ElevenLabs fel:', err);
-    }
+    language: 'sv',
+    model: 'nova',
   });
 
   ws.on('message', (message) => {
+    let msg;
     try {
-      const msg = JSON.parse(message);
-      if (msg.event === 'media') {
-        const audio = Buffer.from(msg.media.payload, 'base64');
-        dgSocket.send(audio);
-      }
+      msg = JSON.parse(message);
     } catch (e) {
-      console.error('❌ WS/Media-fel:', e.message);
+      return;
+    }
+
+    if (msg.event === 'media') {
+      const audio = Buffer.from(msg.media.payload, 'base64');
+      dgSocket.send(audio);
+    }
+  });
+
+  dgSocket.on('transcriptReceived', async (data) => {
+    const transcript = JSON.parse(data)?.channel?.alternatives?.[0]?.transcript;
+    if (!transcript || transcript.trim() === '') return;
+
+    console.log('🗣 Du sa:', transcript);
+
+    try {
+      const gptReply = await getGptResponse(transcript);
+      console.log('🤖 Amaia säger:', gptReply);
+
+      const audioPath = await speak(gptReply);
+      const fileName = path.basename(audioPath);
+      latestAudioUrl = `${process.env.BASE_URL}/audio/${fileName}`;
+      console.log('🔊 Klar att spela upp:', latestAudioUrl);
+    } catch (err) {
+      console.error('❌ Fel i GPT/ElevenLabs:', err.message || err);
     }
   });
 
   ws.on('close', () => {
-    console.log(`❌ WS stängd för ${callSid}`);
+    console.log('❌ Samtalet avslutat');
     dgSocket.finish();
   });
-}
+});
 
-module.exports = { startTranscription };
+module.exports = {
+  getAndClearAudioUrl: () => {
+    const url = latestAudioUrl;
+    latestAudioUrl = null; // 🧽 Rensa efter varje uppspelning
+    return url;
+  }
+};

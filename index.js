@@ -1,68 +1,57 @@
+const express = require('express');
+const { getAndClearAudioUrl } = require('./mediaServer');
 require('dotenv').config();
 
-const express = require('express');
-const bodyParser = require('body-parser');
-const path = require('path');
-const { WebSocketServer } = require('ws');
-const { startTranscription } = require('./mediaServer');
-const http = require('http');
-
 const app = express();
-const PORT = process.env.PORT || 10000;
+app.use(express.urlencoded({ extended: true }));
+app.use('/audio', express.static('public/audio'));
 
-// Serve audio files
-app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
-app.use(bodyParser.urlencoded({ extended: false }));
-
-// Twilio webhook
+// Inkommande samtal – Stream + första fras + redirect till loopen
 app.post('/incoming-call', (req, res) => {
-  const callSid = req.body.CallSid;
-  console.log('📞 Inkommande samtal, CallSid =', callSid);
+  const callSid = req.body.CallSid || 'unknown';
+  console.log(`📞 Inkommande samtal, CallSid = ${callSid}`);
 
-  const streamUrl = `wss://${process.env.BASE_URL.replace(/^https?:\/\//, '')}/media?CallSid=${callSid}`;
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Start>
-    <Stream url="${streamUrl}" track="inbound_audio"/>
-  </Start>
-  <Say voice="Polly.Swedish">Ge mig bara en sekund, älskling...</Say>
-  <Pause length="600"/>
-</Response>`;
-
-  console.log('🧠 TwiML till Twilio:\n', twiml);
-  res.type('text/xml').send(twiml);
+  res.type('text/xml');
+  res.send(`
+    <?xml version="1.0" encoding="UTF-8"?>
+    <Response>
+      <Start>
+        <Stream url="wss://${process.env.RENDER_HOSTNAME}/media?CallSid=${callSid}" track="inbound_audio"/>
+      </Start>
+      <Say voice="Polly.Swedish">Ge mig bara en sekund, älskling...</Say>
+      <Redirect>/next-reply</Redirect>
+    </Response>
+  `);
 });
 
-// Create HTTP server
-const server = http.createServer(app);
+// Loopen: Spela nytt ljud eller säg nåt snuskigt om inget nytt finns
+app.get('/next-reply', (req, res) => {
+  const url = getAndClearAudioUrl();
 
-// WebSocket server
-const wss = new WebSocketServer({ noServer: true });
+  res.type('text/xml');
 
-// Upgrade HTTP -> WebSocket
-server.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url, `https://${req.headers.host}`);
-  const pathname = url.pathname;
-
-  if (pathname === '/media') {
-    console.log('📥 WS-upgrade begärd:', req.url);
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit('connection', ws, req);
-    });
+  if (!url) {
+    console.log('⏳ Inget nytt ljud – spelar väntande fras');
+    res.send(`
+      <?xml version="1.0" encoding="UTF-8"?>
+      <Response>
+        <Say voice="Polly.Swedish">Mmm... är du kvar älskling? Jag vill höra mer av dig...</Say>
+        <Redirect>/next-reply</Redirect>
+      </Response>
+    `);
   } else {
-    socket.destroy();
+    console.log('🔊 Spelar upp nytt ljud:', url);
+    res.send(`
+      <?xml version="1.0" encoding="UTF-8"?>
+      <Response>
+        <Play>${url}</Play>
+        <Redirect>/next-reply</Redirect>
+      </Response>
+    `);
   }
 });
 
-// WebSocket connection handler
-wss.on('connection', (ws, req) => {
-  const url = new URL(req.url, `https://${req.headers.host}`);
-  const callSid = url.searchParams.get('CallSid') || 'unknown';
-  console.log('🔌 WS-anslutning för CallSid:', callSid);
-
-  startTranscription(ws, callSid);
-});
-
-server.listen(PORT, () => {
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
   console.log(`✅ Amaia backend live på port ${PORT}`);
 });
