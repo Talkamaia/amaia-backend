@@ -8,24 +8,30 @@ require('dotenv').config();
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
 async function startTranscription(ws, callSid) {
+  if (!callSid) {
+    console.warn('❌ Saknar CallSid – WS avbryts');
+    ws.close();
+    return;
+  }
+
   console.log(`🎙️ Startar transkribering för ${callSid}`);
 
-  const dgConnection = deepgram.listen.live({
+  const dgSocket = deepgram.listen.live({
     model: 'nova',
     language: 'sv',
     punctuate: true,
     interim_results: false,
   });
 
-  dgConnection.on('open', () => {
+  dgSocket.on('open', () => {
     console.log('🧠 Deepgram WebSocket öppen');
   });
 
-  dgConnection.on('error', (error) => {
+  dgSocket.on('error', (error) => {
     console.error('🚨 Deepgram fel:', error);
   });
 
-  dgConnection.on('transcriptReceived', async (data) => {
+  dgSocket.on('transcriptReceived', async (data) => {
     const transcript = data.channel.alternatives[0]?.transcript;
     if (!transcript || transcript.length < 1) return;
 
@@ -45,7 +51,7 @@ async function startTranscription(ws, callSid) {
 
       ws.send(JSON.stringify({ twiml }));
     } catch (err) {
-      console.error('❌ GPT/ElevenLabs-fel:', err);
+      console.error('❌ GPT eller ElevenLabs fel:', err);
     }
   });
 
@@ -54,7 +60,7 @@ async function startTranscription(ws, callSid) {
       const msg = JSON.parse(message);
       if (msg.event === 'media') {
         const audio = Buffer.from(msg.media.payload, 'base64');
-        dgConnection.send(audio);
+        dgSocket.send(audio);
       }
     } catch (e) {
       console.error('❌ WS/Media-fel:', e.message);
@@ -63,7 +69,7 @@ async function startTranscription(ws, callSid) {
 
   ws.on('close', () => {
     console.log(`❌ WS stängd för ${callSid}`);
-    dgConnection.finish();
+    dgSocket.finish();
   });
 }
 

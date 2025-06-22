@@ -47,7 +47,13 @@ server.on('upgrade', (req, socket, head) => {
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `https://${req.headers.host}`);
-  const callSid = url.searchParams.get('CallSid') || 'unknown';
+  const callSid = url.searchParams.get('CallSid');
+if (!callSid) {
+  console.warn('❌ Inget CallSid i WS-URL');
+  ws.close();
+  return;
+}
+
   console.log('🔌 WS-anslutning för CallSid:', callSid);
 
   startTranscription(ws, callSid);
