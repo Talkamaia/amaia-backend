@@ -53,14 +53,11 @@ async function startTranscription(ws, callSid) {
     }
   });
 
-  // 🔊 Här är förbättrade media-mottagaren
   ws.on('message', (message) => {
-    console.log('🎧 Mottog media från Twilio WebSocket');
     try {
       const msg = JSON.parse(message);
       if (msg.event === 'media') {
         const audio = Buffer.from(msg.media.payload, 'base64');
-        console.log(`🔈 Ljudpaket på ${audio.length} bytes`);
         dgSocket.send(audio);
       }
     } catch (e) {

@@ -1,4 +1,3 @@
-// index.js
 require('dotenv').config();
 
 const express = require('express');
@@ -11,7 +10,7 @@ const http = require('http');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Serve audio
+// Serve audio files
 app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 app.use(bodyParser.urlencoded({ extended: false }));
 
@@ -21,7 +20,6 @@ app.post('/incoming-call', (req, res) => {
   console.log('📞 Inkommande samtal, CallSid =', callSid);
 
   const streamUrl = `wss://${process.env.BASE_URL.replace(/^https?:\/\//, '')}/media?CallSid=${callSid}`;
-
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
@@ -35,27 +33,20 @@ app.post('/incoming-call', (req, res) => {
   res.type('text/xml').send(twiml);
 });
 
-// HTTP server
+// Create HTTP server
 const server = http.createServer(app);
 
-// WebSocket
+// WebSocket server
 const wss = new WebSocketServer({ noServer: true });
 
+// Upgrade HTTP -> WebSocket
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `https://${req.headers.host}`);
   const pathname = url.pathname;
 
   if (pathname === '/media') {
-    const callSid = url.searchParams.get('CallSid');
-    if (!callSid) {
-      console.warn('❌ Inget CallSid i WS-URL');
-      socket.destroy();
-      return;
-    }
-
     console.log('📥 WS-upgrade begärd:', req.url);
     wss.handleUpgrade(req, socket, head, (ws) => {
-      ws.callSid = callSid;
       wss.emit('connection', ws, req);
     });
   } else {
@@ -63,8 +54,10 @@ server.on('upgrade', (req, socket, head) => {
   }
 });
 
+// WebSocket connection handler
 wss.on('connection', (ws, req) => {
-  const callSid = ws.callSid || 'unknown';
+  const url = new URL(req.url, `https://${req.headers.host}`);
+  const callSid = url.searchParams.get('CallSid') || 'unknown';
   console.log('🔌 WS-anslutning för CallSid:', callSid);
 
   startTranscription(ws, callSid);
