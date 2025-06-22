@@ -1,70 +1,74 @@
 require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
 const { WebSocketServer } = require('ws');
-const { Deepgram } = require('@deepgram/sdk');
+const { createClient } = require('@deepgram/sdk');
 const { speak } = require('./eleven');
 const { askGPT } = require('./gpt');
+const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
 
-const deepgram = new Deepgram(process.env.DEEPGRAM_API_KEY);
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+const wss = new WebSocketServer({ port: 8080 });
 
-let latestAudioUrl = null;
+console.log('🎧 MediaServer kör (DG v3.13)');
 
-const wss = new WebSocketServer({ port: 10001 }, () => {
-  console.log('🎧 MediaServer live på ws://localhost:10001');
-});
+wss.on('connection', async (ws) => {
+  console.log('🔌 Klient ansluten');
 
-wss.on('connection', (ws) => {
-  console.log('📞 Ny samtalsanslutning');
+  const sessionId = uuidv4();
+  const filepath = `/tmp/${sessionId}.mp3`;
 
-  const dgConnection = deepgram.listen.live({
+  const { connection, transcription } = await deepgram.listen.live({
     model: 'nova',
     language: 'sv',
     smart_format: true,
-    punctuate: true,
+    interim_results: false,
   });
 
-  dgConnection.on('transcriptReceived', async (msg) => {
-    const transcript = msg.channel?.alternatives?.[0]?.transcript;
-    if (!transcript || transcript.trim() === '') return;
+  transcription.on('transcriptReceived', async (data) => {
+    const transcript = data.channel.alternatives[0]?.transcript;
+    if (transcript) {
+      console.log('🗣️ Kunden sa:', transcript);
 
-    console.log('🗣 Du sa:', transcript);
+      const gptResponse = await askGPT(transcript);
+      console.log('🤖 GPT:', gptResponse);
 
-    try {
-      const gptReply = await askGPT(transcript);
-      console.log('🤖 Amaia säger:', gptReply);
+      const audioBuffer = await speak(gptResponse, filepath);
 
-      const audioPath = await speak(gptReply);
-      const fileName = path.basename(audioPath);
-      latestAudioUrl = `${process.env.BASE_URL}/audio/${fileName}`;
-      console.log('🔊 Klar att spela upp:', latestAudioUrl);
-    } catch (err) {
-      console.error('❌ GPT/ElevenLabs-fel:', err.message || err);
+      const message = {
+        event: 'media',
+        media: {
+          payload: audioBuffer.toString('base64')
+        }
+      };
+
+      ws.send(JSON.stringify(message));
     }
   });
 
   ws.on('message', (msg) => {
     try {
-      const data = JSON.parse(msg);
+      const data = JSON.parse(msg.toString());
+
+      if (data.event === 'start') {
+        console.log('🚀 Stream startad');
+      }
+
       if (data.event === 'media') {
         const audio = Buffer.from(data.media.payload, 'base64');
-        dgConnection.send(audio);
+        connection.send(audio);
       }
-    } catch (e) {
-      console.error('❌ Meddelandefel:', e.message);
+
+      if (data.event === 'stop') {
+        console.log('🛑 Stream stoppad');
+        connection.close();
+      }
+    } catch (err) {
+      console.error('❌ Fel vid ws-message:', err);
     }
   });
 
   ws.on('close', () => {
-    console.log('❌ Samtalet avslutat');
-    dgConnection.finish();
+    connection.close();
+    console.log('🔌 Klient frånkopplad');
   });
 });
-
-module.exports = {
-  getAndClearAudioUrl: () => {
-    const url = latestAudioUrl;
-    latestAudioUrl = null;
-    return url;
-  }
-};
