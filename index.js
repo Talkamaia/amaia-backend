@@ -13,20 +13,36 @@ const PORT = process.env.PORT || 10000;
 const app = express();
 const server = createServer(app);
 
-// Serva ljudfiler (om du vill)
-app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
+// För webhook (Twilio skickar som x-www-form-urlencoded)
+app.use(express.urlencoded({ extended: false }));
 
-// Test-rutt
-app.get('/', (req, res) => {
-  res.send('✅ Amaia backend med WebSocket är igång');
+// 🚀 Webhook: När samtal kommer in till /incoming-call
+app.post('/incoming-call', (req, res) => {
+  res.type('text/xml');
+  res.send(`
+    <Response>
+      <Start>
+        <Stream url="wss://amaia-backend-1.onrender.com"/>
+      </Start>
+      <Say voice="Polly.Salli">Hej älskling... Amaia är här för dig</Say>
+    </Response>
+  `);
 });
 
-// WebSocket + Deepgram + GPT + ElevenLabs
+// 🎧 Serva ljudfiler (om du använder det)
+app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
+
+// 🌐 Test route
+app.get('/', (req, res) => {
+  res.send('✅ Amaia backend med WebSocket + webhook är igång');
+});
+
+// 🎙️ WebSocket-server (realtidssamtal)
 const wss = new WebSocketServer({ server });
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
 wss.on('connection', async (ws) => {
-  console.log('🔌 Klient ansluten');
+  console.log('🔌 Klient ansluten till WebSocket');
 
   const sessionId = uuidv4();
   const filepath = `/tmp/${sessionId}.mp3`;
@@ -77,7 +93,7 @@ wss.on('connection', async (ws) => {
         connection.close();
       }
     } catch (err) {
-      console.error('❌ WS-fel:', err);
+      console.error('❌ Fel vid WebSocket-message:', err);
     }
   });
 
@@ -87,7 +103,7 @@ wss.on('connection', async (ws) => {
   });
 });
 
-// Starta servern
+// ✅ Starta servern
 server.listen(PORT, () => {
   console.log(`✅ Amaia backend + WebSocket live på port ${PORT}`);
 });
