@@ -1,58 +1,71 @@
-import { Deepgram } from '@deepgram/sdk';
-import { handleChat } from './gpt.js';
-import { speak } from './eleven.js';
+// mediaServer.js
 
-export const mediaServer = (socket, config) => {
-  const dg = new Deepgram(config.DEEPGRAM_API_KEY);
-  let stream;
-  let lastResponseTime = 0;
-  const cooldownMs = 3000; // 3 sekunders mellanrum mellan svar
+const { createClient } = require('@deepgram/sdk');
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
-  socket.on('media', async ({ media }) => {
-    if (!stream) {
-      stream = dg.transcription.live({ smart_format: true });
+const { getGptResponse } = require('./gpt');
+const { speak } = require('./eleven');
+const axios = require('axios');
+const { v4: uuidv4 } = require('uuid');
 
-      stream.on('transcriptReceived', async (data) => {
-        console.log('🧪 RAW Deepgram:', data);
+/**
+ * startTranscription
+ * - ws: WebSocket-anslutningen från Twilio
+ * - callSid: det unika Call SID som identifierar samtalet
+ */
+async function startTranscription(ws, callSid) {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken  = process.env.TWILIO_AUTH_TOKEN;
 
-        try {
-          const transcript = JSON.parse(data)?.channel?.alternatives?.[0]?.transcript;
-          console.log('👂 Transkriberat:', transcript);
+  console.log(`🎙️ Startar transkribering för ${callSid}`);
 
-          if (transcript && transcript.trim().length > 1) {
-            const now = Date.now();
-
-            if (now - lastResponseTime < cooldownMs) {
-              console.log('⏳ Ignorerar (cooldown):', transcript);
-              return;
-            }
-
-            console.log('👂 Kund:', transcript);
-            lastResponseTime = now;
-
-            const reply = await handleChat(transcript, socket.id); // socket.id är unikt för varje samtal
-            console.log('🗣️ Amaia säger:', reply);
-            console.log('🤖 Amaia:', reply);
-
-            const audio = await speak(reply);
-            console.log('🔊 Audio buffer (first 50 bytes):', audio?.slice(0, 50));
-            socket.emit('audio', { audio });
-          }
-        } catch (err) {
-          console.error('🚨 Fel i transcriptReceived:', err);
-        }
-      });
-    }
-
-    try {
-      stream.write(Buffer.from(media.payload, 'base64'));
-    } catch (err) {
-      console.error('🚨 Fel vid stream.write:', err);
-    }
+  // Skapa en live-transkriptionsström
+  const dgStream = deepgram.transcription.live({
+    punctuate: true,
+    interim_results: false,
+    language: 'sv'
   });
 
-  socket.on('disconnect', () => {
-    if (stream) stream.finish();
-    console.log('📴 Media stream avslutad');
+  // När Deepgram får färdiga transkript:
+  dgStream.on('transcriptReceived', async (data) => {
+    const transcript = data.channel.alternatives[0].transcript;
+    if (!transcript) return;
+
+    console.log(`📜 Transkriberat (${callSid}):`, transcript);
+
+    // Hämta GPT-svar
+    const gptReply = await getGptResponse(transcript);
+    console.log(`🤖 GPT-svar (${callSid}):`, gptReply);
+
+    // Skapa ljudfil med ElevenLabs
+    const audioPath = await speak(gptReply);
+    const publicUrl = `https://${process.env.RENDER_HOSTNAME}${audioPath}`;
+    console.log(`🔊 Spelar upp (${callSid}):`, publicUrl);
+
+    // Twilio-redirect med <Play>
+    await axios.post(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${callSid}.xml`,
+      `<Response><Play>${publicUrl}</Play></Response>`,
+      {
+        headers: { 'Content-Type': 'text/xml' },
+        auth: { username: accountSid, password: authToken }
+      }
+    );
   });
-};
+
+  dgStream.on('error', (err) => {
+    console.error('❌ Deepgram error:', err);
+  });
+
+  // Skicka alla inkommande audio-meddelanden till Deepgram
+  ws.on('message', (msg) => {
+    dgStream.send(msg);
+  });
+
+  ws.on('close', () => {
+    console.log(`❌ WebSocket stängd för ${callSid}`);
+    dgStream.finish();
+  });
+}
+
+module.exports = { startTranscription };
