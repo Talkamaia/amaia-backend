@@ -1,11 +1,11 @@
 const WebSocket = require('ws');
-const { Deepgram } = require('@deepgram/sdk');
+const { createClient } = require('@deepgram/sdk'); // ✅ NYA SDK-formatet
 const { speak } = require('./eleven');
 const { getGptResponse } = require('./gpt');
 require('dotenv').config();
 const path = require('path');
 
-const deepgram = new Deepgram(process.env.DEEPGRAM_API_KEY);
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
 let latestAudioUrl = null;
 
@@ -16,10 +16,11 @@ const wss = new WebSocket.Server({ port: 10001 }, () => {
 wss.on('connection', (ws) => {
   console.log('📞 Ny samtalsanslutning');
 
-  const dgSocket = deepgram.transcription.live({
-    punctuate: true,
-    language: 'sv',
+  const dgSocket = deepgram.listen.live({
     model: 'nova',
+    language: 'sv',
+    smart_format: true,
+    interim_results: false,
   });
 
   ws.on('message', (message) => {
@@ -37,7 +38,7 @@ wss.on('connection', (ws) => {
   });
 
   dgSocket.on('transcriptReceived', async (data) => {
-    const transcript = JSON.parse(data)?.channel?.alternatives?.[0]?.transcript;
+    const transcript = data.channel.alternatives[0]?.transcript;
     if (!transcript || transcript.trim() === '') return;
 
     console.log('🗣 Du sa:', transcript);
@@ -64,7 +65,7 @@ wss.on('connection', (ws) => {
 module.exports = {
   getAndClearAudioUrl: () => {
     const url = latestAudioUrl;
-    latestAudioUrl = null; // 🧽 Rensa efter varje uppspelning
+    latestAudioUrl = null;
     return url;
-  }
+  },
 };
