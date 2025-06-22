@@ -1,56 +1,53 @@
-import express from 'express';
-import bodyParser from 'body-parser';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import { mediaServer } from './mediaServer.js';
-import { handleChat } from './gpt.js';
-import { config } from './config.js';
+// index.js
+
+require('dotenv').config();
+
+const express = require('express');
+const bodyParser = require('body-parser');
+const path = require('path');
+const { WebSocketServer } = require('ws');
+const { startTranscription } = require('./mediaServer');
 
 const app = express();
-const server = createServer(app);
-const io = new Server(server);
+const PORT = process.env.PORT || 10000;
 
-// Middleware
+// Serve static audio files
+app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
 
-// Root check
-app.get('/', (req, res) => {
-  res.send('🎧 Amaia backend live');
-});
-
-// Incoming phone call from Twilio
+// Twilio webhook: inkommande samtal
 app.post('/incoming-call', (req, res) => {
-  const wsUrl = `${process.env.BASE_URL || 'wss://amaia-backend-1.onrender.com'}/media`;
+  const callSid = req.body.CallSid;
+  console.log('📞 Inkommande samtal, CallSid =', callSid);
 
   const twiml = `
     <?xml version="1.0" encoding="UTF-8"?>
     <Response>
+      <!-- 1) Hälsa -->
+      <Say voice="Polly.Swedish">Ge mig bara en sekund, älskling...</Say>
+
+      <!-- 2) Starta media-strömmen med CallSid i query -->
       <Start>
-        <Stream url="${wsUrl}" />
+        <Stream url="wss://${req.headers.host}/media?CallSid=${callSid}" track="inbound_audio"/>
       </Start>
-      <Say voice="Polly.Salli">Ett ögonblick... jag lyssnar.</Say>
+
+      <!-- 3) Håll luren öppen i upp till 10 minuter -->
+      <Pause length="600"/>
     </Response>
   `;
-
-  res.set('Content-Type', 'text/xml');
-  res.send(twiml.trim());
+  res.type('text/xml').send(twiml);
 });
 
-// GPT-chat endpoint
-app.post('/chat', async (req, res) => {
-  const userInput = req.body.message;
-  const response = await handleChat(userInput);
-  res.json({ response });
-});
-
-// WebSocket för Twilio Media Streams
-io.of('/media').on('connection', (socket) => {
-  mediaServer(socket, config);
-});
-
-// Starta server
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
+// Starta HTTP-server
+const server = app.listen(PORT, () => {
   console.log(`✅ Amaia backend live på port ${PORT}`);
+});
+
+// WebSocket-server för Twilio Media Streams
+const wss = new WebSocketServer({ server, path: '/media' });
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, `https://${req.headers.host}`);
+  const callSid = url.searchParams.get('CallSid');
+  console.log('🔌 WebSocket ansluten för CallSid =', callSid);
+  startTranscription(ws, callSid);
 });
