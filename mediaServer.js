@@ -1,74 +1,75 @@
 require('dotenv').config();
+const { Deepgram } = require('@deepgram/sdk');
 const { WebSocketServer } = require('ws');
-const { createClient } = require('@deepgram/sdk');
-const { speak } = require('./eleven');
 const { askGPT } = require('./gpt');
-const { v4: uuidv4 } = require('uuid');
+const { speak } = require('./eleven');
 const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
-const wss = new WebSocketServer({ port: 8080 });
+const PORT = process.env.PORT || 10000;
+const deepgram = new Deepgram(process.env.DEEPGRAM_API_KEY);
+const wss = new WebSocketServer({ port: PORT });
 
-console.log('🎧 MediaServer kör (DG v3.13)');
+console.log(`✅ Amaia backend + WebSocket + webhook live på port ${PORT}`);
 
-wss.on('connection', async (ws) => {
-  console.log('🔌 Klient ansluten');
+wss.on('connection', (ws) => {
+  console.log('🔌 Klient ansluten till WebSocket');
 
-  const sessionId = uuidv4();
-  const filepath = `/tmp/${sessionId}.mp3`;
-
-  const { connection, transcription } = await deepgram.listen.live({
-    model: 'nova',
+  const dgSocket = deepgram.transcription.live({
     language: 'sv',
+    model: 'nova',
+    punctuate: true,
     smart_format: true,
     interim_results: false,
   });
 
-  transcription.on('transcriptReceived', async (data) => {
-    const transcript = data.channel.alternatives[0]?.transcript;
-    if (transcript) {
-      console.log('🗣️ Kunden sa:', transcript);
+  dgSocket.on('open', () => {
+    console.log('🚀 Stream startad');
+  });
 
-      const gptResponse = await askGPT(transcript);
-      console.log('🤖 GPT:', gptResponse);
+  dgSocket.on('error', (error) => {
+    console.error('🔥 Deepgram WebSocket error:', error);
+  });
 
-      const audioBuffer = await speak(gptResponse, filepath);
+  dgSocket.on('close', () => {
+    console.log('❌ Deepgram WebSocket stängd');
+  });
 
-      const message = {
-        event: 'media',
-        media: {
-          payload: audioBuffer.toString('base64')
-        }
-      };
+  dgSocket.on('transcriptReceived', async (data) => {
+    try {
+      const transcript = JSON.parse(data);
+      const text = transcript.channel.alternatives[0]?.transcript;
+      if (!text || text.length < 1) return;
 
-      ws.send(JSON.stringify(message));
+      console.log('🗣️ Användare sa:', text);
+
+      const reply = await askGPT(text);
+      console.log('🤖 GPT svarar:', reply);
+
+      const filepath = `/tmp/${uuidv4()}.mp3`;
+      await speak(reply, filepath);
+
+      const audioBuffer = fs.readFileSync(filepath);
+      ws.send(audioBuffer);
+      fs.unlinkSync(filepath);
+    } catch (err) {
+      console.error('❗ Fel vid transkribering eller svar:', err);
     }
   });
 
-  ws.on('message', (msg) => {
-    try {
-      const data = JSON.parse(msg.toString());
-
-      if (data.event === 'start') {
-        console.log('🚀 Stream startad');
-      }
-
-      if (data.event === 'media') {
-        const audio = Buffer.from(data.media.payload, 'base64');
-        connection.send(audio);
-      }
-
-      if (data.event === 'stop') {
-        console.log('🛑 Stream stoppad');
-        connection.close();
-      }
-    } catch (err) {
-      console.error('❌ Fel vid ws-message:', err);
+  ws.on('message', (message) => {
+    if (Buffer.isBuffer(message)) {
+      dgSocket.send(message);
     }
   });
 
   ws.on('close', () => {
-    connection.close();
-    console.log('🔌 Klient frånkopplad');
+    console.log('📴 WebSocket stängd av klient');
+    dgSocket.finish();
+  });
+
+  ws.on('error', (err) => {
+    console.error('📛 WebSocket error:', err);
   });
 });
