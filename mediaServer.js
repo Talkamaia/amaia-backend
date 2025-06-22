@@ -1,39 +1,40 @@
+// mediaServer.js – korrekt version med Deepgram v3 SDK
 require('dotenv').config();
-const { Deepgram } = require('@deepgram/sdk');
-const { WebSocketServer } = require('ws');
-const { askGPT } = require('./gpt');
-const { speak } = require('./eleven');
 const fs = require('fs');
 const path = require('path');
+const { WebSocketServer } = require('ws');
+const { speak } = require('./eleven');
+const { askGPT } = require('./gpt');
 const { v4: uuidv4 } = require('uuid');
 
+const { createClient } = require('@deepgram/sdk');
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+
 const PORT = process.env.PORT || 10000;
-const deepgram = new Deepgram(process.env.DEEPGRAM_API_KEY);
 const wss = new WebSocketServer({ port: PORT });
 
-console.log(`✅ Amaia backend + WebSocket + webhook live på port ${PORT}`);
+console.log(`🎧 WebSocket + Deepgram live på port ${PORT}`);
 
 wss.on('connection', (ws) => {
-  console.log('🔌 Klient ansluten till WebSocket');
+  console.log('🔌 Klient ansluten via WebSocket');
 
-  const dgSocket = deepgram.transcription.live({
-    language: 'sv',
+  const dgSocket = deepgram.listen.live({
     model: 'nova',
-    punctuate: true,
+    language: 'sv',
     smart_format: true,
-    interim_results: false,
+    interim_results: false
   });
 
   dgSocket.on('open', () => {
-    console.log('🚀 Stream startad');
+    console.log('🎙️ Deepgram-anslutning startad');
   });
 
-  dgSocket.on('error', (error) => {
-    console.error('🔥 Deepgram WebSocket error:', error);
+  dgSocket.on('error', (err) => {
+    console.error('❌ Deepgram error:', err);
   });
 
   dgSocket.on('close', () => {
-    console.log('❌ Deepgram WebSocket stängd');
+    console.log('🔇 Deepgram stängd');
   });
 
   dgSocket.on('transcriptReceived', async (data) => {
@@ -54,7 +55,7 @@ wss.on('connection', (ws) => {
       ws.send(audioBuffer);
       fs.unlinkSync(filepath);
     } catch (err) {
-      console.error('❗ Fel vid transkribering eller svar:', err);
+      console.error('❗ Fel i transkribering eller svar:', err);
     }
   });
 
@@ -65,7 +66,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    console.log('📴 WebSocket stängd av klient');
+    console.log('📴 Klient kopplade från');
     dgSocket.finish();
   });
 
