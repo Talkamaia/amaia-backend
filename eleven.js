@@ -21,7 +21,7 @@ async function speak(text) {
     },
     data: {
       text,
-      voice_settings: { stability: 0.45, similarity_boost: 0.75 }
+      voice_settings: { stability: 0.4, similarity_boost: 0.8 }
     },
     responseType: 'stream'
   });
