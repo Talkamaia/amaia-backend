@@ -1,8 +1,8 @@
+require('dotenv').config();
 const WebSocket = require('ws');
 const { Deepgram } = require('@deepgram/sdk');
 const { speak } = require('./eleven');
-const { getGptResponse } = require('./gpt');
-require('dotenv').config();
+const { askGPT } = require('./gpt');
 const path = require('path');
 
 const deepgram = new Deepgram(process.env.DEEPGRAM_API_KEY);
@@ -19,14 +19,15 @@ wss.on('connection', (ws) => {
   const dgSocket = deepgram.listen.live({
     model: 'nova',
     language: 'sv',
-    punctuate: true
+    smart_format: true,
+    punctuate: true,
   });
 
   ws.on('message', (message) => {
     let msg;
     try {
       msg = JSON.parse(message);
-    } catch {
+    } catch (e) {
       return;
     }
 
@@ -43,12 +44,12 @@ wss.on('connection', (ws) => {
     console.log('🗣 Du sa:', transcript);
 
     try {
-      const gptReply = await getGptResponse(transcript);
+      const gptReply = await askGPT(transcript);
       console.log('🤖 Amaia säger:', gptReply);
 
       const audioPath = await speak(gptReply);
       const fileName = path.basename(audioPath);
-      latestAudioUrl = `${process.env.BASE_URL}${audioPath}`;
+      latestAudioUrl = `${process.env.BASE_URL}/audio/${fileName}`;
       console.log('🔊 Klar att spela upp:', latestAudioUrl);
     } catch (err) {
       console.error('❌ Fel i GPT/ElevenLabs:', err.message || err);
