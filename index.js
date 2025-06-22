@@ -20,12 +20,29 @@ app.post('/incoming-call', (req, res) => {
   const callSid = req.body.CallSid;
   console.log('📞 Inkommande samtal, CallSid =', callSid);
 
+  const streamUrl = `wss://${process.env.BASE_URL.replace(/^https?:\/\//, '')}/media?CallSid=${callSid}`;
+
+  const twiml = `
+    <?xml version="1.0" encoding="UTF-8"?>
+    <Response>
+      <Start>
+        <Stream url="${streamUrl}" track="inbound_audio"/>
+      </Start>
+      <Say voice="Polly.Swedish">Ge mig bara en sekund, älskling...</Say>
+      <Pause length="600"/>
+    </Response>
+  `;
+
+  console.log('🧠 Svarar Twilio med TwiML...');
+  res.type('text/xml').send(twiml);
+});
+
   const twiml = `
     <?xml version="1.0" encoding="UTF-8"?>
     <Response>
       <Say voice="Polly.Swedish">Ge mig bara en sekund, älskling...</Say>
       <Start>
-        <Stream url="wss://amaia-backend-1.onrender.com/media?CallSid=${callSid}" track="inbound_audio"/>
+        <Stream url="wss://${process.env.BASE_URL.replace(/^https?:\/\//, '')}/media?CallSid=${callSid}" track="inbound_audio"/>
       </Start>
       <Pause length="600"/>
     </Response>
