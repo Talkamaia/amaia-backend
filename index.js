@@ -47,4 +47,28 @@ const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
   console.log('📥 WS-upgrade begärd:', req.url);
 
-  const pathname = new
+  const pathname = new URL(req.url, `https://${req.headers.host}`).pathname;
+
+  if (pathname === '/media') {
+    console.log('📡 WS-upgrade ACCEPTED to /media');
+
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+  } else {
+    console.warn('❌ WS-upgrade DENIED – unknown path:', pathname);
+    socket.destroy();
+  }
+});
+
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, `https://${req.headers.host}`);
+  const callSid = url.searchParams.get('CallSid');
+  console.log('🔌 WebSocket ansluten för CallSid =', callSid);
+
+  startTranscription(ws, callSid);
+});
+
+server.listen(PORT, () => {
+  console.log(`✅ Amaia backend live på port ${PORT}`);
+});
