@@ -1,32 +1,32 @@
-const { Deepgram } = require('@deepgram/sdk');
+const { createClient } = require('@deepgram/sdk');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const { generateSpeech } = require('./eleven');
 const { askAmaia } = require('./gpt');
 require('dotenv').config();
 
-const deepgram = new Deepgram(process.env.DEEPGRAM_API_KEY);
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
 async function startTranscription(ws, callSid) {
   console.log(`🎙️ Startar transkribering för ${callSid}`);
 
-  const dgSocket = deepgram.transcription.live({
-    punctuate: true,
+  const dgConnection = deepgram.listen.live({
     model: 'nova',
     language: 'sv',
+    punctuate: true,
     interim_results: false,
   });
 
-  dgSocket.on('open', () => {
+  dgConnection.on('open', () => {
     console.log('🧠 Deepgram WebSocket öppen');
   });
 
-  dgSocket.on('error', (error) => {
+  dgConnection.on('error', (error) => {
     console.error('🚨 Deepgram fel:', error);
   });
 
-  dgSocket.on('transcriptReceived', async (data) => {
-    const transcript = JSON.parse(data).channel.alternatives[0].transcript;
+  dgConnection.on('transcriptReceived', async (data) => {
+    const transcript = data.channel.alternatives[0]?.transcript;
     if (!transcript || transcript.length < 1) return;
 
     console.log(`👂 Kunde höras: ${transcript}`);
@@ -54,7 +54,7 @@ async function startTranscription(ws, callSid) {
       const msg = JSON.parse(message);
       if (msg.event === 'media') {
         const audio = Buffer.from(msg.media.payload, 'base64');
-        dgSocket.send(audio);
+        dgConnection.send(audio);
       }
     } catch (e) {
       console.error('❌ WS/Media-fel:', e.message);
@@ -63,7 +63,7 @@ async function startTranscription(ws, callSid) {
 
   ws.on('close', () => {
     console.log(`❌ WS stängd för ${callSid}`);
-    dgSocket.finish();
+    dgConnection.finish();
   });
 }
 
