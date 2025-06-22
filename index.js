@@ -21,9 +21,7 @@ app.post('/incoming-call', (req, res) => {
 
   const streamUrl = `wss://${process.env.BASE_URL.replace(/^https?:\/\//, '')}/media?CallSid=${callSid}`;
 
-   const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response><Start><Stream url="' + streamUrl + '" track="inbound_audio"/></Start><Say voice="Polly.Swedish">Ge mig bara en sekund, älskling...</Say><Pause length="600"/></Response>';
-
-  
+  const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response><Start><Stream url="' + streamUrl + '" name="audio"/></Start><Say voice="woman">Vänta en stund, älskling</Say><Pause length="600"/></Response>';
 
   res.type('text/xml').send(twiml);
 });
