@@ -1,8 +1,9 @@
 const { createClient } = require('@deepgram/sdk');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
-const { generateSpeech } = require('./eleven');
-const { askAmaia } = require('./gpt');
+const path = require('path');
+const { speak } = require('./eleven');
+const { getGptResponse } = require('./gpt');
 require('dotenv').config();
 
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
@@ -38,28 +39,28 @@ async function startTranscription(ws, callSid) {
     console.log(`👂 Kunde höras: ${transcript}`);
 
     try {
-      const reply = await askAmaia(transcript, callSid);
+      const reply = await getGptResponse(transcript);
       console.log(`💬 Amaia svarar: ${reply}`);
 
-      const mp3Path = `/tmp/${uuidv4()}.mp3`;
-      await generateSpeech(reply, mp3Path);
+      const filepath = `/tmp/${uuidv4()}.mp3`;
+      await speak(reply, filepath);
 
-      const twiml = `
-<Response>
-  <Play>${process.env.BASE_URL}/audio/${pathFromTmp(mp3Path)}</Play>
-</Response>`;
-
+      const filename = filepath.split('/').pop();
+      const twiml = `<Response><Play>${process.env.BASE_URL}/audio/${filename}</Play></Response>`;
       ws.send(JSON.stringify({ twiml }));
     } catch (err) {
       console.error('❌ GPT eller ElevenLabs fel:', err);
     }
   });
 
+  // 🔊 Här är förbättrade media-mottagaren
   ws.on('message', (message) => {
+    console.log('🎧 Mottog media från Twilio WebSocket');
     try {
       const msg = JSON.parse(message);
       if (msg.event === 'media') {
         const audio = Buffer.from(msg.media.payload, 'base64');
+        console.log(`🔈 Ljudpaket på ${audio.length} bytes`);
         dgSocket.send(audio);
       }
     } catch (e) {
@@ -71,11 +72,6 @@ async function startTranscription(ws, callSid) {
     console.log(`❌ WS stängd för ${callSid}`);
     dgSocket.finish();
   });
-}
-
-function pathFromTmp(fullPath) {
-  const filename = fullPath.split('/').pop();
-  return `audio/${filename}`;
 }
 
 module.exports = { startTranscription };
