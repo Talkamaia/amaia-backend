@@ -13,10 +13,8 @@ const PORT = process.env.PORT || 10000;
 const app = express();
 const server = createServer(app);
 
-// För webhook (Twilio skickar som x-www-form-urlencoded)
+// 🛠️ Twilio webhook
 app.use(express.urlencoded({ extended: false }));
-
-// 🚀 Webhook: När samtal kommer in till /incoming-call
 app.post('/incoming-call', (req, res) => {
   res.type('text/xml');
   res.send(`
@@ -29,15 +27,11 @@ app.post('/incoming-call', (req, res) => {
   `);
 });
 
-// 🎧 Serva ljudfiler (om du använder det)
+// 🎧 Serva ev. ljud
 app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
+app.get('/', (req, res) => res.send('✅ Amaia backend är live'));
 
-// 🌐 Test route
-app.get('/', (req, res) => {
-  res.send('✅ Amaia backend med WebSocket + webhook är igång');
-});
-
-// 🎙️ WebSocket-server (realtidssamtal)
+// 🎙️ WebSocket + Deepgram + GPT + ElevenLabs
 const wss = new WebSocketServer({ server });
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
@@ -47,14 +41,14 @@ wss.on('connection', async (ws) => {
   const sessionId = uuidv4();
   const filepath = `/tmp/${sessionId}.mp3`;
 
-  const { connection, transcription } = await deepgram.listen.live({
+  const deepgramLive = await deepgram.listen.live({
     model: 'nova',
     language: 'sv',
     smart_format: true,
     interim_results: false
   });
 
-  transcription.on('transcriptReceived', async (data) => {
+  deepgramLive.on('transcriptReceived', async (data) => {
     const transcript = data.channel.alternatives[0]?.transcript;
     if (transcript) {
       console.log('🗣️ Kunden sa:', transcript);
@@ -85,12 +79,12 @@ wss.on('connection', async (ws) => {
 
       if (data.event === 'media') {
         const audio = Buffer.from(data.media.payload, 'base64');
-        connection.send(audio);
+        deepgramLive.send(audio);
       }
 
       if (data.event === 'stop') {
         console.log('🛑 Stream stoppad');
-        connection.close();
+        deepgramLive.close();
       }
     } catch (err) {
       console.error('❌ Fel vid WebSocket-message:', err);
@@ -98,12 +92,12 @@ wss.on('connection', async (ws) => {
   });
 
   ws.on('close', () => {
-    connection.close();
+    deepgramLive.close();
     console.log('🔌 Klient frånkopplad');
   });
 });
 
-// ✅ Starta servern
+// 🚀 Starta server
 server.listen(PORT, () => {
-  console.log(`✅ Amaia backend + WebSocket live på port ${PORT}`);
+  console.log(`✅ Amaia backend + WebSocket + webhook live på port ${PORT}`);
 });
