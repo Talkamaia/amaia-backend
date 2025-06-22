@@ -30,6 +30,8 @@ app.post('/incoming-call', (req, res) => {
       <Pause length="600"/>
     </Response>
   `;
+
+  console.log('🧠 Svarar Twilio med TwiML...');
   res.type('text/xml').send(twiml);
 });
 
@@ -40,23 +42,18 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
-  try {
-    console.log('📥 WS-upgrade begärd:', req.url);
+  console.log('📥 WS-upgrade begärd:', req.url);
 
-    const pathname = new URL(req.url, `https://${req.headers.host}`).pathname;
+  const pathname = new URL(req.url, `https://${req.headers.host}`).pathname;
 
-    if (pathname === '/media') {
-      console.log('📡 WS-upgrade ACCEPTED to /media');
+  if (pathname === '/media') {
+    console.log('📡 WS-upgrade ACCEPTED to /media');
 
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit('connection', ws, req);
-      });
-    } else {
-      console.warn('❌ WS-upgrade DENIED – unknown path:', pathname);
-      socket.destroy();
-    }
-  } catch (err) {
-    console.error('❌ WS-upgrade error:', err);
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+  } else {
+    console.warn('❌ WS-upgrade DENIED – unknown path:', pathname);
     socket.destroy();
   }
 });
