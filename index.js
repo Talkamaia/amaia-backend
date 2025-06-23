@@ -15,14 +15,14 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server });
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
-// 🎧 Serva statiska ljudfiler från /public/audio/
+// 🎧 Serva ljudfiler
 app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 
-// ✅ Test-routes
+// Test routes
 app.get('/test', (req, res) => res.send('✅ Amaia backend OK 🎧'));
 app.get('/', (req, res) => res.send('✅ Amaia backend är live'));
 
-// 🎤 Generera ny test.mp3 via URL
+// 🎤 Generera röst från URL
 app.get('/generate-voice', async (req, res) => {
   const text = req.query.text || "Hej, jag är Amaia. Vill du leka med mig?";
   const filepath = path.join(__dirname, 'public/audio/test.mp3');
@@ -36,7 +36,7 @@ app.get('/generate-voice', async (req, res) => {
   }
 });
 
-// ☎️ Twilio webhook – initialtal + stream
+// 📞 Twilio webhook
 app.use(express.urlencoded({ extended: false }));
 app.post('/incoming-call', (req, res) => {
   res.type('text/xml');
@@ -53,7 +53,7 @@ app.post('/incoming-call', (req, res) => {
   `);
 });
 
-// 🎙️ WebSocket-stream – realtidsröst
+// 🎙️ WebSocket
 wss.on('connection', async (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
   const sessionId = uuidv4();
@@ -66,10 +66,25 @@ wss.on('connection', async (ws) => {
     interim_results: false
   });
 
-  deepgramLive.on('error', (err) => console.error('🔥 Deepgram-fel:', err));
+  deepgramLive.on('open', () => {
+    console.log('✅ Deepgram live-anslutning öppen');
+  });
+
+  deepgramLive.on('close', () => {
+    console.log('🔒 Deepgram live-anslutning stängd');
+  });
+
+  deepgramLive.on('warning', (warn) => {
+    console.warn('⚠️ Deepgram varning:', warn);
+  });
+
+  deepgramLive.on('error', (err) => {
+    console.error('🔥 Deepgram-fel:', err);
+  });
 
   deepgramLive.on('transcriptReceived', async (data) => {
-    console.log('📡 TRANSKRIPT:', JSON.stringify(data));
+    console.log('📡 Rå Deepgram-data:', JSON.stringify(data, null, 2));
+
     const transcript = data.channel.alternatives[0]?.transcript;
     const timestamp = new Date().toISOString();
 
@@ -123,7 +138,7 @@ wss.on('connection', async (ws) => {
   });
 });
 
-// 🟢 Starta server
+// 🚀 Starta server
 server.listen(PORT, () => {
   console.log(`✅ Amaia backend + WebSocket + Twilio live på port ${PORT}`);
 }).on('error', (err) => {
