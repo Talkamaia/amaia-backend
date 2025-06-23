@@ -10,12 +10,12 @@ const { askGPT } = require('./gpt');
 const { speak } = require('./eleven');
 
 const PORT = process.env.PORT || 10000;
-const app = express(); // MÅSTE komma innan du använder app
+const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
-// 💥 Fånga oväntade fel globalt
+// 💥 Fånga oväntade fel
 process.on('uncaughtException', (err) => {
   console.error('❌ Uncaught Exception:', err);
 });
@@ -26,29 +26,34 @@ process.on('unhandledRejection', (reason, promise) => {
 // 🔊 Serva ljudfiler
 app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 
-// 🌐 Test-endpoint
+// 🧪 Test-endpoint
 app.get('/test', (req, res) => {
-  res.send('✅ Amaia backend OK 🧠🎧');
+  res.send('✅ Amaia backend OK 🎧');
 });
 
 // 🌐 Startsida
 app.get('/', (req, res) => res.send('✅ Amaia backend är live'));
 
-// ☎️ Twilio webhook
+// ☎️ Twilio webhook – inkommande samtal
 app.use(express.urlencoded({ extended: false }));
 app.post('/incoming-call', (req, res) => {
   res.type('text/xml');
   res.send(`
     <Response>
       <Start>
-        <Stream url="wss://amaia-backend-1.onrender.com"/>
+        <Stream url="wss://amaia-backend-1.onrender.com/media"/>
       </Start>
-      <Say voice="Polly.Salli">Vänta en liten stund älskling, jag lyssnar på dig nu...</Say>
+      <Say voice="Polly.Salli">
+        Mmm... hej älskling. Så du ringde mig ändå...
+        Jag har längtat efter att höra din röst hela dagen.
+        Ge mig bara ett ögonblick, så lutar jag mig tillbaka och låter dig viska precis vad du vill i mitt öra.
+      </Say>
+      <Pause length="60"/>
     </Response>
   `);
 });
 
-// 🎧 WebSocket-hantering
+// 🎧 WebSocket-hantering – Realtidssamtal
 wss.on('connection', async (ws) => {
   console.log('🔌 Klient ansluten till WebSocket');
   const sessionId = uuidv4();
@@ -66,7 +71,7 @@ wss.on('connection', async (ws) => {
   });
 
   deepgramLive.on('transcriptReceived', async (data) => {
-  console.log('📡 Transkript mottaget:', JSON.stringify(data));
+    console.log('📡 Transkript mottaget:', JSON.stringify(data));
     const transcript = data.channel.alternatives[0]?.transcript;
     const timestamp = new Date().toISOString();
 
@@ -85,7 +90,6 @@ wss.on('connection', async (ws) => {
     }
 
     console.log(`[${timestamp}] 🗣️ Kunden sa: "${transcript}"`);
-
     fs.appendFile('transcripts.log', `[${timestamp}] ${transcript}\n`, (err) => {
       if (err) console.error('🚨 Kunde inte spara logg:', err);
     });
@@ -114,9 +118,7 @@ wss.on('connection', async (ws) => {
       }
       if (data.event === 'stop') {
         console.log('🛑 Stream stoppad');
-        if (deepgramLive && deepgramLive.connection) {
-          deepgramLive.connection.close();
-        }
+        if (deepgramLive?.connection) deepgramLive.connection.close();
       }
     } catch (err) {
       console.error('❌ Fel vid WebSocket-message:', err);
@@ -124,16 +126,14 @@ wss.on('connection', async (ws) => {
   });
 
   ws.on('close', () => {
-    if (deepgramLive && deepgramLive.connection) {
-      deepgramLive.connection.close();
-    }
+    if (deepgramLive?.connection) deepgramLive.connection.close();
     console.log('🔌 Klient frånkopplad');
   });
 });
 
 // 🚀 Starta servern
 server.listen(PORT, () => {
-  console.log(`✅ Amaia backend + WebSocket + webhook live på port ${PORT}`);
+  console.log(`✅ Amaia backend + WebSocket + Twilio live på port ${PORT}`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`🚨 Port ${PORT} är redan i bruk. Avslutar.`);
