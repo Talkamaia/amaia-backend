@@ -110,7 +110,7 @@ wss.on('connection', async (ws) => {
       }
       if (data.event === 'stop') {
         console.log('🛑 Stream stoppad');
-        deepgramLive.close();
+        deepgramLive.finish();
       }
     } catch (err) {
       console.error('❌ Fel vid WebSocket-meddelande:', err);
@@ -118,7 +118,7 @@ wss.on('connection', async (ws) => {
   });
 
   ws.on('close', () => {
-    deepgramLive.close();
+    deepgramLive.finish();
     console.log('🔌 Klient frånkopplad');
   });
 });
