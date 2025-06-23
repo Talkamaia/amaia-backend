@@ -3,8 +3,8 @@ const fs = require('fs');
 const axios = require('axios');
 
 async function speak(text, filepath) {
-  const voiceId = process.env.ELEVENLABS_VOICE_ID;
-  const apiKey = process.env.ELEVENLABS_API_KEY;
+const voiceId = process.env.ELEVEN_VOICE_ID;
+const apiKey = process.env.ELEVEN_API_KEY;
 
   if (!voiceId || !apiKey) {
     console.error("🚨 ElevenLabs: Saknar voiceId eller API-nyckel");

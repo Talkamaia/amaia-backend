@@ -1,23 +1,19 @@
 require('dotenv').config();
-console.log("🔑 ELEVEN_API_KEY:", process.env.ELEVEN_API_KEY);
-
-const { speak } = require('./eleven');
 const fs = require('fs');
 const path = require('path');
+const { speak } = require('./eleven');
 
-(async () => {
-  const filepath = `/tmp/test-${Date.now()}.mp3`;
+const test = async () => {
+  const testText = "Hej älskling. Jag är Amaia – och jag längtar efter att höra mer från dig.";
+  const filepath = path.join(__dirname, 'public/audio', 'test.mp3');
+
   try {
-    const url = await speak("Hej älskling, jag har saknat dig...", filepath);
-    console.log("🔊 ElevenLabs genererade ljud:", url);
-
-    const finalPath = path.join(__dirname, 'public', url);
-    if (fs.existsSync(finalPath)) {
-      console.log("✅ Filen finns på:", finalPath);
-    } else {
-      console.error("❌ Filen hittades inte!");
-    }
+    const buffer = await speak(testText, filepath);
+    fs.writeFileSync(filepath, buffer);
+    console.log("✅ ElevenLabs genererade ljud:", filepath);
   } catch (err) {
-    console.error("🚨 ElevenLabs fel:", err.message || err);
+    console.error("❌ Fel från ElevenLabs:", err.message);
   }
-})();
+};
+
+test();
