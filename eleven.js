@@ -13,11 +13,13 @@ async function speak(text, filepath) {
   }
 
   try {
-    // Säkerställ att mappen finns
+    // ✅ Se till att mappen finns
     const dir = path.dirname(filepath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+      console.log(`📁 Skapade mapp: ${dir}`);
+    }
 
-    // Anropa ElevenLabs
     const response = await axios.post(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
@@ -37,7 +39,6 @@ async function speak(text, filepath) {
       }
     );
 
-    // Spara och returnera fil
     fs.writeFileSync(filepath, response.data);
     console.log("✅ ElevenLabs genererade ljud:", filepath);
     return fs.readFileSync(filepath);
