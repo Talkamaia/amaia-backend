@@ -15,18 +15,24 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server });
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
-// Fångar oväntade fel
-process.on('uncaughtException', (err) => console.error('❌ Uncaught Exception:', err));
-process.on('unhandledRejection', (reason, promise) => console.error('❌ Unhandled Rejection:', reason));
-
-// Serva ljudfiler
+// 💽 Statisk åtkomst till ljudfiler
 app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 
-// Test endpoints
+// 🧪 Testa att servern är uppe
 app.get('/test', (req, res) => res.send('✅ Amaia backend OK 🎧'));
 app.get('/', (req, res) => res.send('✅ Amaia backend är live'));
 
-// Webhook från Twilio
+// 🔊 Extra test-endpoint för test.mp3
+app.get('/test-voice', (req, res) => {
+  const filePath = path.join(__dirname, 'public/audio/test.mp3');
+  if (fs.existsSync(filePath)) {
+    res.sendFile(filePath);
+  } else {
+    res.status(404).send('Ingen testfil genererad ännu.');
+  }
+});
+
+// 📞 Twilio webhook
 app.use(express.urlencoded({ extended: false }));
 app.post('/incoming-call', (req, res) => {
   res.type('text/xml');
@@ -43,7 +49,7 @@ app.post('/incoming-call', (req, res) => {
   `);
 });
 
-// WebSocket – realtidsröst
+// 🎙️ WebSocket-stream för realtidsröst
 wss.on('connection', async (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
   const sessionId = uuidv4();
@@ -113,7 +119,7 @@ wss.on('connection', async (ws) => {
   });
 });
 
-// Starta server
+// 🚀 Starta server
 server.listen(PORT, () => {
   console.log(`✅ Amaia backend + WebSocket + Twilio live på port ${PORT}`);
 }).on('error', (err) => {
