@@ -1,76 +1,81 @@
-// mediaServer.js – korrekt version med Deepgram v3 SDK
 require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
-const { WebSocketServer } = require('ws');
-const { speak } = require('./eleven');
-const { askGPT } = require('./gpt');
-const { v4: uuidv4 } = require('uuid');
-
 const { createClient } = require('@deepgram/sdk');
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+const { WebSocketServer } = require('ws');
+const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const { askGPT } = require('./gpt');
+const { speak } = require('./eleven');
 
 const PORT = process.env.PORT || 10000;
 const wss = new WebSocketServer({ port: PORT });
 
 console.log(`🎧 WebSocket + Deepgram live på port ${PORT}`);
 
-wss.on('connection', (ws) => {
-  console.log('🔌 Klient ansluten via WebSocket');
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
-  const dgSocket = deepgram.listen.live({
-    model: 'nova',
+wss.on('connection', async (ws) => {
+  console.log('🔌 Klient ansluten till WebSocket');
+
+  const sessionId = uuidv4();
+  const filepath = `/tmp/${sessionId}.mp3`;
+
+  const deepgramLive = await deepgram.listen.live({
+    model: 'general', // 🟢 stabil modell
     language: 'sv',
     smart_format: true,
     interim_results: false
   });
 
-  dgSocket.on('open', () => {
-    console.log('🎙️ Deepgram-anslutning startad');
+  // 🔥 Felhantering för Deepgram
+  deepgramLive.on('error', (err) => {
+    console.error('🔥 Deepgram-anslutningsfel:', err);
   });
 
-  dgSocket.on('error', (err) => {
-    console.error('❌ Deepgram error:', err);
-  });
+  deepgramLive.on('transcriptReceived', async (data) => {
+    const transcript = data.channel.alternatives[0]?.transcript;
+    if (transcript) {
+      console.log('🗣️ Kunden sa:', transcript);
 
-  dgSocket.on('close', () => {
-    console.log('🔇 Deepgram stängd');
-  });
+      const gptResponse = await askGPT(transcript);
+      console.log('🤖 GPT-svar:', gptResponse);
 
-  dgSocket.on('transcriptReceived', async (data) => {
-    try {
-      const transcript = JSON.parse(data);
-      const text = transcript.channel.alternatives[0]?.transcript;
-      if (!text || text.length < 1) return;
+      const audioBuffer = await speak(gptResponse, filepath);
 
-      console.log('🗣️ Användare sa:', text);
+      const message = {
+        event: 'media',
+        media: {
+          payload: audioBuffer.toString('base64')
+        }
+      };
 
-      const reply = await askGPT(text);
-      console.log('🤖 GPT svarar:', reply);
-
-      const filepath = `/tmp/${uuidv4()}.mp3`;
-      await speak(reply, filepath);
-
-      const audioBuffer = fs.readFileSync(filepath);
-      ws.send(audioBuffer);
-      fs.unlinkSync(filepath);
-    } catch (err) {
-      console.error('❗ Fel i transkribering eller svar:', err);
+      ws.send(JSON.stringify(message));
     }
   });
 
-  ws.on('message', (message) => {
-    if (Buffer.isBuffer(message)) {
-      dgSocket.send(message);
+  ws.on('message', (msg) => {
+    try {
+      const data = JSON.parse(msg.toString());
+
+      if (data.event === 'start') {
+        console.log('🚀 Stream startad');
+      }
+
+      if (data.event === 'media') {
+        const audio = Buffer.from(data.media.payload, 'base64');
+        deepgramLive.send(audio);
+      }
+
+      if (data.event === 'stop') {
+        console.log('🛑 Stream stoppad');
+        deepgramLive.close();
+      }
+    } catch (err) {
+      console.error('❌ Fel vid WebSocket-message:', err);
     }
   });
 
   ws.on('close', () => {
-    console.log('📴 Klient kopplade från');
-    dgSocket.finish();
-  });
-
-  ws.on('error', (err) => {
-    console.error('📛 WebSocket error:', err);
+    deepgramLive.close();
+    console.log('🔌 Klient frånkopplad');
   });
 });
