@@ -66,6 +66,7 @@ wss.on('connection', async (ws) => {
   });
 
   deepgramLive.on('transcriptReceived', async (data) => {
+  console.log('📡 Transkript mottaget:', JSON.stringify(data));
     const transcript = data.channel.alternatives[0]?.transcript;
     const timestamp = new Date().toISOString();
 
