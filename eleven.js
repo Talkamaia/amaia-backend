@@ -1,10 +1,11 @@
 require('dotenv').config();
 const fs = require('fs');
+const path = require('path');
 const axios = require('axios');
 
 async function speak(text, filepath) {
-const voiceId = process.env.ELEVEN_VOICE_ID;
-const apiKey = process.env.ELEVEN_API_KEY;
+  const voiceId = process.env.ELEVEN_VOICE_ID;
+  const apiKey = process.env.ELEVEN_API_KEY;
 
   if (!voiceId || !apiKey) {
     console.error("🚨 ElevenLabs: Saknar voiceId eller API-nyckel");
@@ -12,6 +13,11 @@ const apiKey = process.env.ELEVEN_API_KEY;
   }
 
   try {
+    // Säkerställ att mappen finns
+    const dir = path.dirname(filepath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    // Anropa ElevenLabs
     const response = await axios.post(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
@@ -31,8 +37,9 @@ const apiKey = process.env.ELEVEN_API_KEY;
       }
     );
 
+    // Spara och returnera fil
     fs.writeFileSync(filepath, response.data);
-    console.log("🔊 Ljudfil genererad:", filepath);
+    console.log("✅ ElevenLabs genererade ljud:", filepath);
     return fs.readFileSync(filepath);
   } catch (err) {
     console.error("❌ ElevenLabs API-fel:", err.response?.data || err.message);
@@ -41,4 +48,3 @@ const apiKey = process.env.ELEVEN_API_KEY;
 }
 
 module.exports = { speak };
-
