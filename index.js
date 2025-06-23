@@ -43,7 +43,9 @@ app.post('/incoming-call', (req, res) => {
   res.send(`
     <Response>
       <Start>
-        <Stream url="wss://amaia-backend-1.onrender.com/media"/>
+  <Stream url="wss://amaia-backend-1.onrender.com/media" track="inbound_track"/>
+</Start>
+
       </Start>
       <Say>
         Mmm... hej älskling. Så du ringde mig ändå... Jag har längtat efter att höra din röst hela dagen. Ge mig bara ett ögonblick, så lutar jag mig tillbaka och låter dig viska precis vad du vill i mitt öra.
