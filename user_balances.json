@@ -1,0 +1,10 @@
+{
+  "test@example.com": {
+    "call": 10,
+    "chat": 100
+  },
+  "demo-kund@amaia.nu": {
+    "call": 0,
+    "chat": 500
+  }
+}

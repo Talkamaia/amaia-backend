@@ -8,6 +8,8 @@ const { WebSocketServer } = require('ws');
 const { createClient } = require('@deepgram/sdk');
 const { askGPT } = require('./gpt');
 const { speak } = require('./eleven');
+const products = require('./products');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const PORT = process.env.PORT || 10000;
 const app = express();
@@ -16,23 +18,10 @@ const wss = new WebSocketServer({ server });
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
 app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
-
-app.get('/', (req, res) => res.send('✅ Amaia backend live'));
-app.get('/test', (req, res) => res.send('✅ Test OK'));
-
-app.get('/generate-voice', async (req, res) => {
-  const text = req.query.text || "Hej, jag är Amaia.";
-  const filepath = path.join(__dirname, 'public/audio/test.mp3');
-  try {
-    const audioBuffer = await speak(text, filepath);
-    res.send('✅ Ljud genererat som test.mp3');
-  } catch (err) {
-    console.error('❌ Röstfel:', err);
-    res.status(500).send('Fel vid generering');
-  }
-});
-
 app.use(express.urlencoded({ extended: false }));
+app.use(express.json()); // För övriga POST-rutter
+
+// 🔁 Twilio-Webhook för inkommande samtal
 app.post('/incoming-call', (req, res) => {
   res.type('text/xml');
   res.send(`
@@ -45,6 +34,20 @@ app.post('/incoming-call', (req, res) => {
   `);
 });
 
+// 🔊 Test generering av röstfil
+app.get('/generate-voice', async (req, res) => {
+  const text = req.query.text || "Hej, jag är Amaia.";
+  const filepath = path.join(__dirname, 'public/audio/test.mp3');
+  try {
+    const audioBuffer = await speak(text, filepath);
+    res.send('✅ Ljud genererat som test.mp3');
+  } catch (err) {
+    console.error('❌ Röstfel:', err);
+    res.status(500).send('Fel vid generering');
+  }
+});
+
+// 💬 WebSocket-hantering för Twilio Media Streams
 wss.on('connection', async (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
   const sessionId = uuidv4();
@@ -62,7 +65,7 @@ wss.on('connection', async (ws) => {
   deepgramLive.on('warning', (w) => console.warn('⚠️ DG-varning:', w));
   deepgramLive.on('error', (e) => console.error('🔥 DG-fel:', e));
 
-  // 🎙 Skicka inledningsfras via ElevenLabs
+  // 🎙 Inledningsfras från Amaia
   const intro = "Mmm... hej älskling. Jag är så glad att du ringde mig...";
   const introBuffer = await speak(intro, filepath);
   if (introBuffer.length) {
@@ -74,7 +77,6 @@ wss.on('connection', async (ws) => {
   }
 
   deepgramLive.on('transcriptReceived', async (data) => {
-    console.log('📡 Raw transcript:', JSON.stringify(data, null, 2));
     const transcript = data.channel.alternatives[0]?.transcript;
     const timestamp = new Date().toISOString();
 
@@ -115,6 +117,54 @@ wss.on('connection', async (ws) => {
     console.log('🔌 Klient frånkopplad');
   });
 });
+
+// 💳 Stripe Webhook – uppdaterar saldo efter köp
+app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+  } catch (err) {
+    console.error('❌ Webhook verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const priceId = session.display_items?.[0]?.price?.id || session.line_items?.data?.[0]?.price?.id;
+    const userId = session.client_reference_id || session.customer_email;
+
+    const product = products[priceId];
+    if (product && userId) {
+      console.log(`💳 Köpt paket: ${product.name} (${product.amount} ${product.type}) av ${userId}`);
+
+      let balances = {};
+      try {
+        balances = JSON.parse(fs.readFileSync('./user_balances.json', 'utf8') || '{}');
+      } catch {
+        balances = {};
+      }
+
+      if (!balances[userId]) {
+        balances[userId] = { call: 0, chat: 0 };
+      }
+      balances[userId][product.type] += product.amount;
+
+      fs.writeFileSync('./user_balances.json', JSON.stringify(balances, null, 2));
+      console.log(`✅ Uppdaterat saldo: ${balances[userId][product.type]} ${product.type} kvar`);
+    } else {
+      console.warn('⚠️ Okänt price ID eller användare:', priceId);
+    }
+  }
+
+  res.status(200).send('Webhook mottagen');
+});
+
+// Statusroutes
+app.get('/', (req, res) => res.send('✅ Amaia backend live'));
+app.get('/test', (req, res) => res.send('✅ Test OK'));
 
 server.listen(PORT, () => {
   console.log(`✅ Amaia backend + WS + Twilio live på port ${PORT}`);
