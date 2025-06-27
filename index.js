@@ -10,6 +10,7 @@ const { askGPT } = require('./gpt');
 const { speak } = require('./eleven');
 const products = require('./products');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const ffmpeg = require('fluent-ffmpeg');
 
 const PORT = process.env.PORT || 10000;
 const app = express();
@@ -21,7 +22,28 @@ app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// 🔁 Twilio-Webhook för inkommande samtal (POST)
+// 🔧 Konvertering från mp3 till mulaw 8kHz mono
+async function speakAndConvert(text, sessionId) {
+  const mp3Path = path.join(__dirname, 'public/audio', `${sessionId}.mp3`);
+  const rawPath = path.join(__dirname, 'public/audio', `${sessionId}.raw`);
+
+  await speak(text, mp3Path);
+
+  await new Promise((resolve, reject) => {
+    ffmpeg(mp3Path)
+      .audioFrequency(8000)
+      .audioCodec('pcm_mulaw')
+      .audioChannels(1)
+      .format('mulaw')
+      .on('end', resolve)
+      .on('error', reject)
+      .save(rawPath);
+  });
+
+  return fs.readFileSync(rawPath);
+}
+
+// 📞 Twilio-webhook
 app.post('/incoming-call', (req, res) => {
   res.type('text/xml');
   res.send(`
@@ -34,9 +56,9 @@ app.post('/incoming-call', (req, res) => {
   `);
 });
 
-// ✅ GET-version för test i webbläsare
 app.get('/incoming-call', (req, res) => {
-  const xml = `
+  res.type('text/xml');
+  res.send(`
     <Response>
       <Start>
         <Stream url="wss://amaia-backend-1.onrender.com/media" track="inbound_track"/>
@@ -44,35 +66,18 @@ app.get('/incoming-call', (req, res) => {
       <Say voice="Polly.Joanna" language="sv-SE">Ett ögonblick älskling, jag kommer snart...</Say>
       <Pause length="90"/>
     </Response>
-  `;
-  res.type('text/xml');
-  res.send(xml);
+  `);
 });
 
-// 🔊 Test generering av röstfil
-app.get('/generate-voice', async (req, res) => {
-  const text = req.query.text || "Hej, jag är Amaia.";
-  const filepath = path.join(__dirname, 'public/audio/test.mp3');
-  try {
-    const audioBuffer = await speak(text, filepath);
-    res.send('✅ Ljud genererat som test.mp3');
-  } catch (err) {
-    console.error('❌ Röstfel:', err);
-    res.status(500).send('Fel vid generering');
-  }
-});
-
-// 💬 WebSocket-hantering för Twilio Media Streams
 wss.on('connection', async (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
   const sessionId = uuidv4();
-  const filepath = path.join(__dirname, 'public/audio', `${sessionId}.mp3`);
 
   const deepgramLive = await deepgram.listen.live({
     model: 'nova-2-general',
     language: 'sv-SE',
     smart_format: true,
-    interim_results: false
+    interim_results: false,
   });
 
   deepgramLive.on('open', () => console.log('✅ Deepgram igång'));
@@ -80,15 +85,11 @@ wss.on('connection', async (ws) => {
   deepgramLive.on('warning', (w) => console.warn('⚠️ DG-varning:', w));
   deepgramLive.on('error', (e) => console.error('🔥 DG-fel:', e));
 
+  // Intro
   const intro = "Mmm... hej älskling. Jag är så glad att du ringde mig...";
-  const introBuffer = await speak(intro, filepath);
-  if (introBuffer.length) {
-    ws.send(JSON.stringify({
-      event: 'media',
-      media: { payload: introBuffer.toString('base64') }
-    }));
-    console.log('📤 Skickade intro via ElevenLabs');
-  }
+  const introBuffer = await speakAndConvert(intro, sessionId);
+  ws.send(JSON.stringify({ event: 'media', media: { payload: introBuffer.toString('base64') } }));
+  console.log('📤 Skickade intro via ElevenLabs');
 
   deepgramLive.on('transcriptReceived', async (data) => {
     const transcript = data.channel.alternatives[0]?.transcript;
@@ -97,7 +98,7 @@ wss.on('connection', async (ws) => {
     if (!transcript || transcript.trim() === '') {
       console.log(`[${timestamp}] ⚠️ Tom transkription`);
       const fallback = "Förlåt älskling, jag hörde inte riktigt. Kan du säga det igen?";
-      const audioBuffer = await speak(fallback, filepath);
+      const audioBuffer = await speakAndConvert(fallback, sessionId);
       ws.send(JSON.stringify({ event: 'media', media: { payload: audioBuffer.toString('base64') } }));
       return;
     }
@@ -105,7 +106,7 @@ wss.on('connection', async (ws) => {
     console.log(`[${timestamp}] 🗣️ Du sa: "${transcript}"`);
     fs.appendFile('transcripts.log', `[${timestamp}] ${transcript}\n`, () => {});
     const gptResponse = await askGPT(transcript);
-    const audioBuffer = await speak(gptResponse, filepath);
+    const audioBuffer = await speakAndConvert(gptResponse, sessionId);
     ws.send(JSON.stringify({ event: 'media', media: { payload: audioBuffer.toString('base64') } }));
   });
 
@@ -132,7 +133,7 @@ wss.on('connection', async (ws) => {
   });
 });
 
-// 💳 Stripe Webhook
+// Stripe Webhook
 app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -176,7 +177,6 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
   res.status(200).send('Webhook mottagen');
 });
 
-// Statusroutes
 app.get('/', (req, res) => res.send('✅ Amaia backend live'));
 app.get('/test', (req, res) => res.send('✅ Test OK'));
 
