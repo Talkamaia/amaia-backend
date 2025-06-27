@@ -70,10 +70,7 @@ wss.on('connection', async (ws) => {
   const intro = "Mmm... hej älskling. Jag är så glad att du ringde mig...";
   const introBuffer = await speak(intro, filepath);
   if (introBuffer.length) {
-    ws.send(JSON.stringify({
-      event: 'media',
-      media: { payload: introBuffer.toString('base64') }
-    }));
+  ws.send(audioBuffer);  
     console.log('📤 Skickade intro via ElevenLabs');
   }
 
