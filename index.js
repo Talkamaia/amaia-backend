@@ -10,7 +10,9 @@ const { askGPT } = require('./gpt');
 const { speak } = require('./eleven');
 const products = require('./products');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 const ffmpeg = require('fluent-ffmpeg');
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 const PORT = process.env.PORT || 10000;
 const app = express();
