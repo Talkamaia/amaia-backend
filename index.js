@@ -19,9 +19,9 @@ const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
 app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json()); // För övriga POST-rutter
+app.use(express.json());
 
-// 🔁 Twilio-Webhook för inkommande samtal
+// ✅ INKOMMANDE SAMTAL – Twilio webhook
 app.post('/incoming-call', (req, res) => {
   res.type('text/xml');
   res.send(`
@@ -29,12 +29,13 @@ app.post('/incoming-call', (req, res) => {
       <Start>
         <Stream url="wss://amaia-backend-1.onrender.com/media" track="inbound_track"/>
       </Start>
+      <Say voice="Polly.Joanna" language="sv-SE">Ett ögonblick älskling, jag kommer snart...</Say>
       <Pause length="60"/>
     </Response>
   `);
 });
 
-// 🔊 Test generering av röstfil
+// 🔊 Testar att generera röst
 app.get('/generate-voice', async (req, res) => {
   const text = req.query.text || "Hej, jag är Amaia.";
   const filepath = path.join(__dirname, 'public/audio/test.mp3');
@@ -47,7 +48,7 @@ app.get('/generate-voice', async (req, res) => {
   }
 });
 
-// 💬 WebSocket-hantering för Twilio Media Streams
+// 💬 WebSocket – hanterar ljudström från Twilio
 wss.on('connection', async (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
   const sessionId = uuidv4();
@@ -65,7 +66,7 @@ wss.on('connection', async (ws) => {
   deepgramLive.on('warning', (w) => console.warn('⚠️ DG-varning:', w));
   deepgramLive.on('error', (e) => console.error('🔥 DG-fel:', e));
 
-  // 🎙 Inledningsfras från Amaia
+  // 🎙 Intro från Amaia direkt när samtalet startar
   const intro = "Mmm... hej älskling. Jag är så glad att du ringde mig...";
   const introBuffer = await speak(intro, filepath);
   if (introBuffer.length) {
@@ -84,7 +85,10 @@ wss.on('connection', async (ws) => {
       console.log(`[${timestamp}] ⚠️ Tom transkription`);
       const fallback = "Förlåt älskling, jag hörde inte riktigt. Kan du säga det igen?";
       const audioBuffer = await speak(fallback, filepath);
-      ws.send(JSON.stringify({ event: 'media', media: { payload: audioBuffer.toString('base64') } }));
+      ws.send(JSON.stringify({
+        event: 'media',
+        media: { payload: audioBuffer.toString('base64') }
+      }));
       return;
     }
 
@@ -92,7 +96,10 @@ wss.on('connection', async (ws) => {
     fs.appendFile('transcripts.log', `[${timestamp}] ${transcript}\n`, () => {});
     const gptResponse = await askGPT(transcript);
     const audioBuffer = await speak(gptResponse, filepath);
-    ws.send(JSON.stringify({ event: 'media', media: { payload: audioBuffer.toString('base64') } }));
+    ws.send(JSON.stringify({
+      event: 'media',
+      media: { payload: audioBuffer.toString('base64') }
+    }));
   });
 
   ws.on('message', (msg) => {
@@ -118,7 +125,7 @@ wss.on('connection', async (ws) => {
   });
 });
 
-// 💳 Stripe Webhook – uppdaterar saldo efter köp
+// 💳 Stripe Webhook – uppdaterar saldo
 app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -162,7 +169,7 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
   res.status(200).send('Webhook mottagen');
 });
 
-// Statusroutes
+// Statusrutter
 app.get('/', (req, res) => res.send('✅ Amaia backend live'));
 app.get('/test', (req, res) => res.send('✅ Test OK'));
 
