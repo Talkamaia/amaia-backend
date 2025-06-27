@@ -21,7 +21,7 @@ app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// ✅ Twilio webhook – fallback med <Say>
+// 🔁 Twilio-Webhook för inkommande samtal (POST)
 app.post('/incoming-call', (req, res) => {
   res.type('text/xml');
   res.send(`
@@ -29,26 +29,40 @@ app.post('/incoming-call', (req, res) => {
       <Start>
         <Stream url="wss://amaia-backend-1.onrender.com/media" track="inbound_track"/>
       </Start>
-      <Say voice="Polly.Joanna" language="sv-SE">Ett ögonblick älskling, jag kommer snart...</Say>
-      <Pause length="90"/>
+      <Pause length="60"/>
     </Response>
   `);
 });
 
-// 🧪 Testa röstgenerering
+// ✅ GET-version för test i webbläsare
+app.get('/incoming-call', (req, res) => {
+  const xml = `
+    <Response>
+      <Start>
+        <Stream url="wss://amaia-backend-1.onrender.com/media" track="inbound_track"/>
+      </Start>
+      <Say voice="Polly.Joanna" language="sv-SE">Ett ögonblick älskling, jag kommer snart...</Say>
+      <Pause length="90"/>
+    </Response>
+  `;
+  res.type('text/xml');
+  res.send(xml);
+});
+
+// 🔊 Test generering av röstfil
 app.get('/generate-voice', async (req, res) => {
   const text = req.query.text || "Hej, jag är Amaia.";
   const filepath = path.join(__dirname, 'public/audio/test.mp3');
   try {
     const audioBuffer = await speak(text, filepath);
-    res.send('✅ Ljud genererat');
+    res.send('✅ Ljud genererat som test.mp3');
   } catch (err) {
     console.error('❌ Röstfel:', err);
     res.status(500).send('Fel vid generering');
   }
 });
 
-// 🧠 Twilio Media Stream via WebSocket
+// 💬 WebSocket-hantering för Twilio Media Streams
 wss.on('connection', async (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
   const sessionId = uuidv4();
@@ -66,16 +80,14 @@ wss.on('connection', async (ws) => {
   deepgramLive.on('warning', (w) => console.warn('⚠️ DG-varning:', w));
   deepgramLive.on('error', (e) => console.error('🔥 DG-fel:', e));
 
-  // 🎙 Intro
-  try {
-    const intro = "Mmm... hej älskling. Jag är så glad att du ringde mig...";
-    const introBuffer = await speak(intro, filepath);
-    if (introBuffer.length) {
-      ws.send(introBuffer); // 🔊 binärt
-      console.log('📤 Skickade intro via ElevenLabs');
-    }
-  } catch (err) {
-    console.error('❌ Intro-fel:', err);
+  const intro = "Mmm... hej älskling. Jag är så glad att du ringde mig...";
+  const introBuffer = await speak(intro, filepath);
+  if (introBuffer.length) {
+    ws.send(JSON.stringify({
+      event: 'media',
+      media: { payload: introBuffer.toString('base64') }
+    }));
+    console.log('📤 Skickade intro via ElevenLabs');
   }
 
   deepgramLive.on('transcriptReceived', async (data) => {
@@ -86,23 +98,15 @@ wss.on('connection', async (ws) => {
       console.log(`[${timestamp}] ⚠️ Tom transkription`);
       const fallback = "Förlåt älskling, jag hörde inte riktigt. Kan du säga det igen?";
       const audioBuffer = await speak(fallback, filepath);
-      ws.send(audioBuffer);
+      ws.send(JSON.stringify({ event: 'media', media: { payload: audioBuffer.toString('base64') } }));
       return;
     }
 
     console.log(`[${timestamp}] 🗣️ Du sa: "${transcript}"`);
     fs.appendFile('transcripts.log', `[${timestamp}] ${transcript}\n`, () => {});
-    try {
-      const gptResponse = await askGPT(transcript);
-      const audioBuffer = await speak(gptResponse, filepath);
-      ws.send(audioBuffer);
-      console.log('🧠 GPT-svar skickat via ElevenLabs');
-    } catch (err) {
-      console.error('❌ GPT- eller röstfel:', err);
-      const fallback = "Något gick fel älskling, försök en gång till.";
-      const audioBuffer = await speak(fallback, filepath);
-      ws.send(audioBuffer);
-    }
+    const gptResponse = await askGPT(transcript);
+    const audioBuffer = await speak(gptResponse, filepath);
+    ws.send(JSON.stringify({ event: 'media', media: { payload: audioBuffer.toString('base64') } }));
   });
 
   ws.on('message', (msg) => {
@@ -143,7 +147,7 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
-    const priceId = session.line_items?.data?.[0]?.price?.id || session.display_items?.[0]?.price?.id;
+    const priceId = session.display_items?.[0]?.price?.id || session.line_items?.data?.[0]?.price?.id;
     const userId = session.client_reference_id || session.customer_email;
 
     const product = products[priceId];
@@ -157,7 +161,9 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
         balances = {};
       }
 
-      if (!balances[userId]) balances[userId] = { call: 0, chat: 0 };
+      if (!balances[userId]) {
+        balances[userId] = { call: 0, chat: 0 };
+      }
       balances[userId][product.type] += product.amount;
 
       fs.writeFileSync('./user_balances.json', JSON.stringify(balances, null, 2));
@@ -170,6 +176,7 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
   res.status(200).send('Webhook mottagen');
 });
 
+// Statusroutes
 app.get('/', (req, res) => res.send('✅ Amaia backend live'));
 app.get('/test', (req, res) => res.send('✅ Test OK'));
 
