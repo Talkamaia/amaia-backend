@@ -6,6 +6,7 @@ const { speak } = require('./eleven');
 const { askGPT } = require('./gpt');
 const fs = require('fs');
 const path = require('path');
+const fetch = require('node-fetch'); // Lägg till fetch
 require('dotenv').config();
 
 const app = express();
@@ -66,9 +67,25 @@ wss.on('connection', (ws) => {
             const audioPath = path.join(__dirname, 'public/audio/reply.mp3');
             await speak(gptReply, audioPath);
 
+            // Vänta tills filen är tillgänglig via HTTP
+            const waitForFile = async (url, timeout = 4000) => {
+              const start = Date.now();
+              while (Date.now() - start < timeout) {
+                try {
+                  const res = await fetch(url, { method: 'HEAD' });
+                  if (res.ok) return true;
+                } catch (_) {}
+                await new Promise(res => setTimeout(res, 200));
+              }
+              throw new Error('Ljudfilen blev inte tillgänglig i tid');
+            };
+
+            const audioUrl = `${BASE_URL}/audio/reply.mp3`;
+            await waitForFile(audioUrl);
+
             ws.send(JSON.stringify({
               event: 'play',
-              audio_url: `${BASE_URL}/audio/reply.mp3`
+              audio_url: audioUrl
             }));
           } catch (err) {
             console.error('🚨 Fel i svarsgenerering:', err.message);
