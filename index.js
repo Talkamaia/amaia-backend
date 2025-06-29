@@ -24,12 +24,14 @@ app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// 🔧 Konvertering från mp3 till mulaw 8kHz mono
+// 🔧 Konverterar ElevenLabs-mp3 till 8kHz PCM s16le
 async function speakAndConvert(text, sessionId) {
   const mp3Path = path.join(__dirname, 'public/audio', `${sessionId}.mp3`);
   const rawPath = path.join(__dirname, 'public/audio', `${sessionId}.raw`);
 
+  console.log('🗣️ TTS startar för:', text);
   await speak(text, mp3Path);
+  console.log('✅ MP3 skapad:', mp3Path);
 
   await new Promise((resolve, reject) => {
     ffmpeg(mp3Path)
@@ -37,15 +39,23 @@ async function speakAndConvert(text, sessionId) {
       .audioCodec('pcm_s16le')
       .audioChannels(1)
       .format('s16le')
-      .on('end', resolve)
-      .on('error', reject)
+      .on('end', () => {
+        console.log('✅ RAW skapad:', rawPath);
+        resolve();
+      })
+      .on('error', (err) => {
+        console.error('❌ FFmpeg error:', err);
+        reject(err);
+      })
       .save(rawPath);
   });
 
-  return fs.readFileSync(rawPath);
+  const buffer = fs.readFileSync(rawPath);
+  console.log('📦 Bufferlängd (bytes):', buffer.length);
+  return buffer;
 }
 
-// 📞 Twilio-webhook
+// 📞 Twilio webhook
 app.post('/incoming-call', (req, res) => {
   res.type('text/xml');
   res.send(`
@@ -71,6 +81,7 @@ app.get('/incoming-call', (req, res) => {
   `);
 });
 
+// 🧠 WebSocket stream
 wss.on('connection', async (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
   const sessionId = uuidv4();
@@ -87,10 +98,12 @@ wss.on('connection', async (ws) => {
   deepgramLive.on('warning', (w) => console.warn('⚠️ DG-varning:', w));
   deepgramLive.on('error', (e) => console.error('🔥 DG-fel:', e));
 
-  // Intro
   const intro = "Mmm... hej älskling. Jag är så glad att du ringde mig...";
   const introBuffer = await speakAndConvert(intro, sessionId);
-  ws.send(JSON.stringify({ event: 'media', media: { payload: introBuffer.toString('base64') } }));
+  ws.send(JSON.stringify({
+    event: 'media',
+    media: { payload: introBuffer.toString('base64') }
+  }));
   console.log('📤 Skickade intro via ElevenLabs');
 
   deepgramLive.on('transcriptReceived', async (data) => {
@@ -100,16 +113,17 @@ wss.on('connection', async (ws) => {
     if (!transcript || transcript.trim() === '') {
       console.log(`[${timestamp}] ⚠️ Tom transkription`);
       const fallback = "Förlåt älskling, jag hörde inte riktigt. Kan du säga det igen?";
-      const audioBuffer = await speakAndConvert(fallback, sessionId);
-      ws.send(JSON.stringify({ event: 'media', media: { payload: audioBuffer.toString('base64') } }));
+      const fallbackBuffer = await speakAndConvert(fallback, sessionId);
+      ws.send(JSON.stringify({ event: 'media', media: { payload: fallbackBuffer.toString('base64') } }));
       return;
     }
 
     console.log(`[${timestamp}] 🗣️ Du sa: "${transcript}"`);
     fs.appendFile('transcripts.log', `[${timestamp}] ${transcript}\n`, () => {});
+
     const gptResponse = await askGPT(transcript);
-    const audioBuffer = await speakAndConvert(gptResponse, sessionId);
-    ws.send(JSON.stringify({ event: 'media', media: { payload: audioBuffer.toString('base64') } }));
+    const responseBuffer = await speakAndConvert(gptResponse, sessionId);
+    ws.send(JSON.stringify({ event: 'media', media: { payload: responseBuffer.toString('base64') } }));
   });
 
   ws.on('message', (msg) => {
@@ -135,7 +149,7 @@ wss.on('connection', async (ws) => {
   });
 });
 
-// Stripe Webhook
+// 💳 Stripe webhook
 app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -156,19 +170,16 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
     const product = products[priceId];
     if (product && userId) {
       console.log(`💳 Köpt paket: ${product.name} (${product.amount} ${product.type}) av ${userId}`);
-
       let balances = {};
       try {
         balances = JSON.parse(fs.readFileSync('./user_balances.json', 'utf8') || '{}');
       } catch {
         balances = {};
       }
-
       if (!balances[userId]) {
         balances[userId] = { call: 0, chat: 0 };
       }
       balances[userId][product.type] += product.amount;
-
       fs.writeFileSync('./user_balances.json', JSON.stringify(balances, null, 2));
       console.log(`✅ Uppdaterat saldo: ${balances[userId][product.type]} ${product.type} kvar`);
     } else {
