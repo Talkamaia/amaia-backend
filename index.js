@@ -6,7 +6,6 @@ const { speak } = require('./eleven');
 const { askGPT } = require('./gpt');
 const fs = require('fs');
 const path = require('path');
-const fetch = require('node-fetch'); // Lägg till fetch
 require('dotenv').config();
 
 const app = express();
