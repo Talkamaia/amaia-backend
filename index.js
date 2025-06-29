@@ -95,8 +95,14 @@ wss.on('connection', (ws) => {
       });
 
       dgConnection.on('error', (err) => {
-        console.error('❌ Deepgram error:', err);
-      });
+  if (err?.message) {
+    console.error('❌ Deepgram error message:', err.message);
+  } else if (err?.stack) {
+    console.error('❌ Deepgram error stack:', err.stack);
+  } else {
+    console.error('❌ Deepgram error object:', JSON.stringify(err, null, 2));
+  }
+});
 
     } else if (data.event === 'media') {
       if (dgConnection) {
