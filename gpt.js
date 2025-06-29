@@ -1,27 +1,19 @@
-require('dotenv').config();
 const { OpenAI } = require('openai');
+require('dotenv').config();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function askGPT(prompt) {
-  try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [{ role: 'user', content: prompt }],
-    });
+async function askGPT(message) {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      { role: 'system', content: 'Du är Amaia – en flirtig och mjuk AI-tjej som svarar varmt och sensuellt.' },
+      { role: 'user', content: message }
+    ],
+    temperature: 0.7
+  });
 
-    const reply = response.choices?.[0]?.message?.content;
-
-    if (!reply || reply.trim() === '') {
-      console.warn('⚠️ Tomt GPT-svar – skickar fallback');
-      return "Jag hörde inte riktigt det där, kan du säga det igen älskling?";
-    }
-
-    return reply;
-  } catch (err) {
-    console.error('❌ GPT-fel:', err);
-    return "Något gick fel, älskling. Kan du säga det igen långsamt?";
-  }
+  return response.choices[0].message.content;
 }
 
 module.exports = { askGPT };

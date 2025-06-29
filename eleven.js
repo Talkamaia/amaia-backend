@@ -1,11 +1,9 @@
 const axios = require('axios');
 const fs = require('fs');
-const path = require('path');
 require('dotenv').config();
 
 const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY;
-const VOICE_ID = process.env.ELEVEN_VOICE_ID || 'rG05xR2lvyonVmthwvZ7';
-const MODEL_ID = process.env.ELEVEN_MODEL_ID || 'eleven_turbo_v2_5';
+const VOICE_ID = process.env.ELEVEN_VOICE_ID;
 
 async function speak(text, filepath) {
   try {
@@ -15,19 +13,19 @@ async function speak(text, filepath) {
       headers: {
         'xi-api-key': ELEVEN_API_KEY,
         'Content-Type': 'application/json',
-        'Accept': 'audio/mpeg',
+        'Accept': 'audio/mpeg'
       },
       data: {
-        model_id: MODEL_ID,
         text,
+        model_id: 'eleven_turbo_v2',
         voice_settings: {
-          stability: 0.35,
+          stability: 0.3,
           similarity_boost: 0.75,
-          style: 0.45,
-          use_speaker_boost: true,
-        },
+          style: 0.4,
+          use_speaker_boost: true
+        }
       },
-      responseType: 'stream',
+      responseType: 'stream'
     });
 
     const writer = fs.createWriteStream(filepath);
@@ -38,7 +36,7 @@ async function speak(text, filepath) {
       writer.on('error', reject);
     });
   } catch (err) {
-    console.error('🚨 ElevenLabs error:', err?.response?.data || err.message);
+    console.error('🚨 ElevenLabs error:', err.message);
     throw err;
   }
 }

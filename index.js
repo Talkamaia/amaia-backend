@@ -1,11 +1,14 @@
 const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('ws');
-const { createClient } = require('@deepgram/sdk');
-const { speak } = require('./eleven');
 const { askGPT } = require('./gpt');
+const { speak } = require('./eleven');
 const fs = require('fs');
 const path = require('path');
+const { Readable } = require('stream');
+const multer = require('multer');
+const upload = multer();
+const { OpenAI } = require('openai');
 require('dotenv').config();
 
 const app = express();
@@ -13,23 +16,19 @@ const server = createServer(app);
 const wss = new Server({ server });
 
 const PORT = process.env.PORT || 10000;
-const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
 const BASE_URL = process.env.BASE_URL;
-
-const deepgram = createClient(DEEPGRAM_API_KEY);
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 app.use(express.static('public'));
-app.use(express.urlencoded({ extended: true }));
 
 app.post('/incoming-call', (req, res) => {
-  console.log('📞 Twilio webhook mottagen!');
-
   const twiml = `
     <Response>
       <Start>
-        <Stream url="wss://amaia-backend-1.onrender.com/media" />
+        <Stream url="wss://${req.headers.host}/media" track="inbound_track"/>
       </Start>
-      <Play>${BASE_URL}/audio/intro.mp3</Play>
+      <Say voice="Polly.Joanna" language="sv-SE">Ett ögonblick älskling, jag kommer snart...</Say>
+      <Pause length="90"/>
     </Response>
   `;
   res.type('text/xml');
@@ -39,87 +38,55 @@ app.post('/incoming-call', (req, res) => {
 wss.on('connection', (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
 
-  let dgConnection = null;
+  let audioChunks = [];
 
   ws.on('message', async (msg) => {
     const data = JSON.parse(msg);
 
     if (data.event === 'start') {
       console.log('🚀 Stream startad');
-
-      dgConnection = deepgram.listen.live({
-        model: 'nova',
-        language: 'sv',
-        interim_results: false,
-        encoding: 'linear16',
-        sample_rate: 8000,
-        channels: 1,
-      });
-
-      dgConnection.on('transcriptReceived', async (transcription) => {
-        const sentence = transcription.channel.alternatives[0]?.transcript;
-        if (sentence && sentence.length > 1) {
-          console.log('🗣 Från kund:', sentence);
-
-          try {
-            const gptReply = await askGPT(sentence);
-            console.log('🤖 Amaia svarar:', gptReply);
-
-            const audioPath = path.join(__dirname, 'public/audio/reply.mp3');
-            await speak(gptReply, audioPath);
-
-            // Vänta tills ljudfilen är tillgänglig via HTTP
-            const waitForFile = async (url, timeout = 4000) => {
-              const start = Date.now();
-              while (Date.now() - start < timeout) {
-                try {
-                  const res = await fetch(url, { method: 'HEAD' });
-                  if (res.ok) return true;
-                } catch (_) {}
-                await new Promise(res => setTimeout(res, 200));
-              }
-              throw new Error('Ljudfilen blev inte tillgänglig i tid');
-            };
-
-            const audioUrl = `${BASE_URL}/audio/reply.mp3`;
-            await waitForFile(audioUrl);
-
-            ws.send(JSON.stringify({
-              event: 'play',
-              audio_url: audioUrl
-            }));
-          } catch (err) {
-            console.error('🚨 Fel i svarsgenerering:', err.message);
-          }
-        }
-      });
-
-      dgConnection.on('error', (err) => {
-  if (err?.message) {
-    console.error('❌ Deepgram error message:', err.message);
-  } else if (err?.stack) {
-    console.error('❌ Deepgram error stack:', err.stack);
-  } else {
-    console.error('❌ Deepgram error object:', JSON.stringify(err, null, 2));
-  }
-});
+      audioChunks = [];
 
     } else if (data.event === 'media') {
-      if (dgConnection) {
-        dgConnection.send(data.media.payload);
-      }
+      const audioBuffer = Buffer.from(data.media.payload, 'base64');
+      audioChunks.push(audioBuffer);
+
     } else if (data.event === 'stop') {
       console.log('🛑 Stream stoppad');
-      if (dgConnection) dgConnection.finish();
+      const audio = Buffer.concat(audioChunks);
+
+      try {
+        const audioStream = Readable.from(audio);
+        const transcription = await openai.audio.transcriptions.create({
+          file: audioStream,
+          model: 'whisper-1',
+          response_format: 'text',
+          language: 'sv'
+        });
+
+        console.log('🗣 Från kund:', transcription);
+
+        const reply = await askGPT(transcription);
+        console.log('🤖 Amaia svarar:', reply);
+
+        const audioPath = path.join(__dirname, 'public/audio/reply.mp3');
+        await speak(reply, audioPath);
+
+        ws.send(JSON.stringify({
+          event: 'play',
+          audio_url: `${BASE_URL}/audio/reply.mp3`
+        }));
+      } catch (err) {
+        console.error('🚨 Whisper error:', err.message);
+      }
     }
   });
 
   ws.on('close', () => {
     console.log('🔒 Klient frånkopplad');
-    if (dgConnection) dgConnection.finish();
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`✅ Amaia backend + WS + Twilio live på port ${PORT}`);
+  console.log(`✅ Amaia backend med Whisper live på port ${PORT}`);
 });
