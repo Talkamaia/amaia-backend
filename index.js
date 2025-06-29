@@ -22,10 +22,12 @@ app.use(express.static('public'));
 app.use(express.urlencoded({ extended: true }));
 
 app.post('/incoming-call', (req, res) => {
+  console.log('📞 Twilio webhook mottagen!');
+
   const twiml = `
     <Response>
       <Start>
-        <Stream url="wss://${req.headers.host}/media" />
+        <Stream url="wss://amaia-backend-1.onrender.com/media" />
       </Start>
       <Play>${BASE_URL}/audio/intro.mp3</Play>
     </Response>
@@ -66,7 +68,7 @@ wss.on('connection', (ws) => {
             const audioPath = path.join(__dirname, 'public/audio/reply.mp3');
             await speak(gptReply, audioPath);
 
-            // Vänta tills filen är tillgänglig via HTTP
+            // Vänta tills ljudfilen är tillgänglig via HTTP
             const waitForFile = async (url, timeout = 4000) => {
               const start = Date.now();
               while (Date.now() - start < timeout) {
