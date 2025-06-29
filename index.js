@@ -1,76 +1,57 @@
 const express = require('express');
-const { createServer } = require('http');
-const { WebSocketServer } = require('ws');
+const bodyParser = require('body-parser');
+const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
-const { transcribeWhisper } = require('./whisper');
-const { askGPT } = require('./gpt');
-const { generateSpeech } = require('./eleven');
 const { v4: uuidv4 } = require('uuid');
-require('dotenv').config();
 
 const app = express();
-const server = createServer(app);
-const wss = new WebSocketServer({ server });
 const PORT = process.env.PORT || 10000;
 
-console.log(`✅ Amaia backend + WS + Twilio live på port ${PORT}`);
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
 
-app.get('/', (req, res) => {
-  res.send('Amaia backend med Whisper aktiverad!');
-});
-
-// Media endpoint för Twilio att streama till
+// === Twilio webhook: tar emot inkommande samtal ===
 app.post('/incoming-call', (req, res) => {
-  res.set('Content-Type', 'text/xml');
-  res.send(`
+  console.log('📞 Twilio webhook mottagen!');
+
+  const response = `
     <Response>
       <Start>
-        <Stream url="wss://${process.env.BASE_URL}/media" track="inbound_track"/>
+        <Stream url="wss://${req.headers.host}/media" track="inbound_track" />
       </Start>
       <Say voice="Polly.Joanna" language="sv-SE">Ett ögonblick älskling, jag kommer snart...</Say>
-      <Pause length="90"/>
+      <Pause length="90" />
     </Response>
-  `);
+  `;
+
+  res.set('Content-Type', 'text/xml');
+  res.send(response);
 });
 
-// WebSocket för realtidsstreaming
+// === WebSocket-server för Twilio Media Streams ===
+const server = app.listen(PORT, () => {
+  console.log(`✅ Amaia backend + WS + Twilio live på port ${PORT}`);
+});
+
+const wss = new WebSocket.Server({ server, path: '/media' });
+
 wss.on('connection', (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
-  let audioBuffer = [];
 
-  ws.on('message', async (msg) => {
-    const data = JSON.parse(msg);
-
-    if (data.event === 'start') {
-      console.log('🚀 Stream startad');
-    }
-
-    if (data.event === 'media') {
-      const audio = Buffer.from(data.media.payload, 'base64');
-      audioBuffer.push(audio);
-    }
-
-    if (data.event === 'stop') {
-      console.log('🛑 Stream stoppad');
-      const rawAudio = Buffer.concat(audioBuffer);
-      const tempFile = path.join(__dirname, 'audio', `${uuidv4()}.wav`);
-      fs.writeFileSync(tempFile, rawAudio);
-
-      try {
-        const transcript = await transcribeWhisper(tempFile);
-        console.log(`🗣️ Användare: ${transcript}`);
-        const reply = await askGPT(transcript);
-        console.log(`🤖 GPT: ${reply}`);
-        const audioPath = await generateSpeech(reply);
-        const audioData = fs.readFileSync(audioPath);
-        ws.send(JSON.stringify({ audio: audioData.toString('base64') }));
-      } catch (err) {
-        console.error('❌ Whisper/GPT/Eleven error:', err.message);
+  ws.on('message', (msg) => {
+    try {
+      const data = JSON.parse(msg);
+      if (data.event === 'start') {
+        console.log('🚀 Stream startad');
+      } else if (data.event === 'media') {
+        // Media bytes kommer här
+        // console.log('🎙️ Media bytes mottagna');
+      } else if (data.event === 'stop') {
+        console.log('🛑 Stream stoppad');
       }
-
-      fs.unlinkSync(tempFile);
-      audioBuffer = [];
+    } catch (err) {
+      console.error('❌ Fel vid tolkning av media-meddelande:', err.message);
     }
   });
 
@@ -78,5 +59,3 @@ wss.on('connection', (ws) => {
     console.log('🔒 Klient frånkopplad');
   });
 });
-
-server.listen(PORT);
