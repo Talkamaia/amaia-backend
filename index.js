@@ -1,119 +1,103 @@
 require('dotenv').config();
 const express = require('express');
-const { v4: uuidv4 } = require('uuid');
+const { createServer } = require('http');
+const { Server } = require('ws');
+const { Deepgram } = require('@deepgram/sdk');
 const fs = require('fs');
 const path = require('path');
-const WebSocket = require('ws');
-const http = require('http');
-const { createClient } = require('@deepgram/sdk');
 const { speak } = require('./eleven');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const httpServer = createServer(app);
+const wss = new Server({ server: httpServer });
 
 const PORT = process.env.PORT || 10000;
-const BASE_URL = process.env.BASE_URL || 'https://amaia-backend-1.onrender.com';
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
+const deepgram = new Deepgram(DEEPGRAM_API_KEY);
 
-const deepgram = createClient(DEEPGRAM_API_KEY);
+// Middleware
+app.use(express.json());
+app.use(express.static('public'));
 
-app.use('/public', express.static(path.join(__dirname, 'public')));
+// ✅ Twilio webhook route
+app.post('/incoming-call', (req, res) => {
+  const twiml = `
+    <Response>
+      <Start>
+        <Stream url="wss://amaia-backend-1.onrender.com"/>
+      </Start>
+      <Say><break time="500ms"/> Ett ögonblick...</Say>
+      <Pause length="60"/>
+    </Response>
+  `;
+  res.type('text/xml');
+  res.send(twiml);
+});
 
-wss.on('connection', async (ws) => {
+// ✅ WebSocket handling
+wss.on('connection', (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
+  let dgSocket;
 
-  let deepgramLive = null;
-  let lastTranscription = '';
-  let isSpeaking = false;
-
-  ws.on('message', async (message) => {
-    const msg = JSON.parse(message);
-
-    if (msg.event === 'start') {
+  ws.on('message', async (msg) => {
+    const data = JSON.parse(msg);
+    if (data.event === 'start') {
       console.log('🚀 Stream startad');
-      deepgramLive = await deepgram.listen.live.v("1").transcribe({
-        model: "nova",
-        interim_results: true,
-        encoding: "linear16",
-        sample_rate: 8000,
+
+      dgSocket = deepgram.transcription.live({
+        punctuate: true,
+        model: 'nova',
+        language: 'sv'
       });
 
-      deepgramLive.on('transcriptReceived', async (data) => {
-        const transcript = JSON.parse(data)?.channel?.alternatives?.[0]?.transcript || '';
-        if (transcript && !isSpeaking && transcript !== lastTranscription) {
-          lastTranscription = transcript;
-          console.log(`👂 Transkriberat: ${transcript}`);
+      dgSocket.on('open', () => console.log('✅ Deepgram igång'));
+      dgSocket.on('close', () => console.log('🔒 Deepgram stängd'));
+      dgSocket.on('error', (err) => console.error('❌ Deepgram error:', err));
 
-          isSpeaking = true;
-          const id = uuidv4();
-          const filepath = path.join(__dirname, 'public/audio', `${id}.mp3`);
-          const rawPath = path.join(__dirname, 'public/audio', `${id}.raw`);
+      dgSocket.on('transcriptReceived', async (transcription) => {
+        const t = JSON.parse(transcription);
+        const text = t.channel?.alternatives[0]?.transcript;
+        if (text && text.length > 0) {
+          console.log('📥 Användaren sa:', text);
 
-          const gptResponse = `Mmm... hej älskling. Jag är så glad att du ringde mig...`; // Här ska GPT-anrop in
+          // Här lägg till GPT-svar och ElevenLabs-generering
+          const reply = 'Mmm, jag hör dig älskling'; // Placeholder
+          const filename = `reply_${uuidv4()}.mp3`;
+          const filepath = path.join(__dirname, 'public/audio', filename);
+          await speak(reply, filepath);
 
-          try {
-            await speak(gptResponse, filepath);
-            console.log(`✅ MP3 skapad: ${filepath}`);
-
-            // Konvertera MP3 → RAW för Twilio
-            const ffmpeg = require('fluent-ffmpeg');
-            ffmpeg(filepath)
-              .audioCodec('pcm_s16le')
-              .audioFrequency(8000)
-              .audioChannels(1)
-              .format('s16le')
-              .on('end', () => {
-                const buffer = fs.readFileSync(rawPath);
-                console.log(`✅ RAW skapad: ${rawPath}`);
-                ws.send(JSON.stringify({
-                  event: 'media',
-                  media: { payload: buffer.toString('base64') }
-                }));
-                isSpeaking = false;
-              })
-              .on('error', (err) => {
-                console.error('❌ FFmpeg-fel:', err);
-                isSpeaking = false;
-              })
-              .save(rawPath);
-          } catch (err) {
-            console.error('🚨 ElevenLabs error:', err.message);
-            isSpeaking = false;
-          }
+          // Konvertera till base64 och skicka som payload till Twilio
+          const audioBuffer = fs.readFileSync(filepath);
+          ws.send(JSON.stringify({
+            event: 'media',
+            media: { payload: audioBuffer.toString('base64') }
+          }));
         }
       });
-
-      deepgramLive.on('error', (err) => {
-        console.error('🚨 Deepgram-fel:', err);
-      });
-
-      deepgramLive.on('close', () => {
-        console.log('🔒 Deepgram stängd');
-      });
     }
 
-    if (msg.event === 'media' && deepgramLive) {
-      const audio = Buffer.from(msg.media.payload, 'base64');
-      deepgramLive.send(audio);
+    if (data.event === 'media' && dgSocket) {
+      const audio = Buffer.from(data.media.payload, 'base64');
+      dgSocket.send(audio);
     }
 
-    if (msg.event === 'stop' && deepgramLive) {
-      deepgramLive.finish();
+    if (data.event === 'stop') {
       console.log('🛑 Stream stoppad');
+      if (dgSocket) dgSocket.finish();
     }
   });
 
   ws.on('close', () => {
     console.log('🔌 Klient frånkopplad');
-    if (deepgramLive) deepgramLive.finish();
+    if (dgSocket) dgSocket.finish();
   });
 });
 
-server.listen(PORT, () => {
+// 🟢 Start server
+httpServer.listen(PORT, () => {
   console.log(`✅ Amaia backend + WS + Twilio live på port ${PORT}`);
   console.log(`==> Your service is live 🎉`);
-  console.log(`==> \n==> ///////////////////////////////////////////////////////////`);
-  console.log(`==> \n==> Available at your primary URL ${BASE_URL}`);
-  console.log(`==> \n==> ///////////////////////////////////////////////////////////`);
+  console.log(`==> \n==> Available at your primary URL ${BASE_URL}\n==>`);
 });
