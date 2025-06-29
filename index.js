@@ -6,7 +6,6 @@ const { speak } = require('./eleven');
 const fs = require('fs');
 const path = require('path');
 const { Readable } = require('stream');
-const multer = require('multer');
 const upload = multer();
 const { OpenAI } = require('openai');
 require('dotenv').config();
