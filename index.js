@@ -24,7 +24,7 @@ app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// 🔧 Konverterar ElevenLabs-mp3 till 8kHz PCM s16le
+// 🔧 ElevenLabs till PCM (s16le)
 async function speakAndConvert(text, sessionId) {
   const mp3Path = path.join(__dirname, 'public/audio', `${sessionId}.mp3`);
   const rawPath = path.join(__dirname, 'public/audio', `${sessionId}.raw`);
@@ -55,7 +55,7 @@ async function speakAndConvert(text, sessionId) {
   return buffer;
 }
 
-// 📞 Twilio webhook
+// 📞 Twilio
 app.post('/incoming-call', (req, res) => {
   res.type('text/xml');
   res.send(`
@@ -81,10 +81,22 @@ app.get('/incoming-call', (req, res) => {
   `);
 });
 
-// 🧠 WebSocket stream
+// 🔊 WebSocket + Test
 wss.on('connection', async (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
   const sessionId = uuidv4();
+
+  // 🧪 Testfil först
+  const testPath = path.join(__dirname, 'public/audio/test.raw');
+  if (fs.existsSync(testPath)) {
+    const testBuffer = fs.readFileSync(testPath);
+    console.log('📤 Skickar test.raw...');
+    ws.send(JSON.stringify({
+      event: 'media',
+      media: { payload: testBuffer.toString('base64') }
+    }));
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
 
   const deepgramLive = await deepgram.listen.live({
     model: 'nova-2-general',
@@ -98,14 +110,7 @@ wss.on('connection', async (ws) => {
   deepgramLive.on('warning', (w) => console.warn('⚠️ DG-varning:', w));
   deepgramLive.on('error', (e) => console.error('🔥 DG-fel:', e));
 
-  const intro = "Mmm... hej älskling. Jag är så glad att du ringde mig...";
-  const introBuffer = await speakAndConvert(intro, sessionId);
-  ws.send(JSON.stringify({
-    event: 'media',
-    media: { payload: introBuffer.toString('base64') }
-  }));
-  console.log('📤 Skickade intro via ElevenLabs');
-
+  // 🔁 Lyssna på användaren
   deepgramLive.on('transcriptReceived', async (data) => {
     const transcript = data.channel.alternatives[0]?.transcript;
     const timestamp = new Date().toISOString();
@@ -120,7 +125,6 @@ wss.on('connection', async (ws) => {
 
     console.log(`[${timestamp}] 🗣️ Du sa: "${transcript}"`);
     fs.appendFile('transcripts.log', `[${timestamp}] ${transcript}\n`, () => {});
-
     const gptResponse = await askGPT(transcript);
     const responseBuffer = await speakAndConvert(gptResponse, sessionId);
     ws.send(JSON.stringify({ event: 'media', media: { payload: responseBuffer.toString('base64') } }));
@@ -149,7 +153,7 @@ wss.on('connection', async (ws) => {
   });
 });
 
-// 💳 Stripe webhook
+// 💳 Stripe
 app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
