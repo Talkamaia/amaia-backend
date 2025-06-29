@@ -1,83 +1,76 @@
 const express = require('express');
 const { createServer } = require('http');
-const { Server } = require('ws');
-const { askGPT } = require('./gpt');
-const { speak } = require('./eleven');
+const { WebSocketServer } = require('ws');
 const fs = require('fs');
 const path = require('path');
-const { Readable } = require('stream');
-const upload = multer();
-const { OpenAI } = require('openai');
+const { transcribeWhisper } = require('./whisper');
+const { askGPT } = require('./gpt');
+const { generateSpeech } = require('./eleven');
+const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
 const app = express();
 const server = createServer(app);
-const wss = new Server({ server });
-
+const wss = new WebSocketServer({ server });
 const PORT = process.env.PORT || 10000;
-const BASE_URL = process.env.BASE_URL;
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-app.use(express.static('public'));
+console.log(`✅ Amaia backend + WS + Twilio live på port ${PORT}`);
 
+app.get('/', (req, res) => {
+  res.send('Amaia backend med Whisper aktiverad!');
+});
+
+// Media endpoint för Twilio att streama till
 app.post('/incoming-call', (req, res) => {
-  const twiml = `
+  res.set('Content-Type', 'text/xml');
+  res.send(`
     <Response>
       <Start>
-        <Stream url="wss://${req.headers.host}/media" track="inbound_track"/>
+        <Stream url="wss://${process.env.BASE_URL}/media" track="inbound_track"/>
       </Start>
       <Say voice="Polly.Joanna" language="sv-SE">Ett ögonblick älskling, jag kommer snart...</Say>
       <Pause length="90"/>
     </Response>
-  `;
-  res.type('text/xml');
-  res.send(twiml);
+  `);
 });
 
+// WebSocket för realtidsstreaming
 wss.on('connection', (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
-
-  let audioChunks = [];
+  let audioBuffer = [];
 
   ws.on('message', async (msg) => {
     const data = JSON.parse(msg);
 
     if (data.event === 'start') {
       console.log('🚀 Stream startad');
-      audioChunks = [];
+    }
 
-    } else if (data.event === 'media') {
-      const audioBuffer = Buffer.from(data.media.payload, 'base64');
-      audioChunks.push(audioBuffer);
+    if (data.event === 'media') {
+      const audio = Buffer.from(data.media.payload, 'base64');
+      audioBuffer.push(audio);
+    }
 
-    } else if (data.event === 'stop') {
+    if (data.event === 'stop') {
       console.log('🛑 Stream stoppad');
-      const audio = Buffer.concat(audioChunks);
+      const rawAudio = Buffer.concat(audioBuffer);
+      const tempFile = path.join(__dirname, 'audio', `${uuidv4()}.wav`);
+      fs.writeFileSync(tempFile, rawAudio);
 
       try {
-        const audioStream = Readable.from(audio);
-        const transcription = await openai.audio.transcriptions.create({
-          file: audioStream,
-          model: 'whisper-1',
-          response_format: 'text',
-          language: 'sv'
-        });
-
-        console.log('🗣 Från kund:', transcription);
-
-        const reply = await askGPT(transcription);
-        console.log('🤖 Amaia svarar:', reply);
-
-        const audioPath = path.join(__dirname, 'public/audio/reply.mp3');
-        await speak(reply, audioPath);
-
-        ws.send(JSON.stringify({
-          event: 'play',
-          audio_url: `${BASE_URL}/audio/reply.mp3`
-        }));
+        const transcript = await transcribeWhisper(tempFile);
+        console.log(`🗣️ Användare: ${transcript}`);
+        const reply = await askGPT(transcript);
+        console.log(`🤖 GPT: ${reply}`);
+        const audioPath = await generateSpeech(reply);
+        const audioData = fs.readFileSync(audioPath);
+        ws.send(JSON.stringify({ audio: audioData.toString('base64') }));
       } catch (err) {
-        console.error('🚨 Whisper error:', err.message);
+        console.error('❌ Whisper/GPT/Eleven error:', err.message);
       }
+
+      fs.unlinkSync(tempFile);
+      audioBuffer = [];
     }
   });
 
@@ -86,6 +79,4 @@ wss.on('connection', (ws) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`✅ Amaia backend med Whisper live på port ${PORT}`);
-});
+server.listen(PORT);
