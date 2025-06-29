@@ -34,9 +34,9 @@ async function speakAndConvert(text, sessionId) {
   await new Promise((resolve, reject) => {
     ffmpeg(mp3Path)
       .audioFrequency(8000)
-      .audioCodec('pcm_mulaw')
+      .audioCodec('pcm_s16le')
       .audioChannels(1)
-      .format('mulaw')
+      .format('s16le')
       .on('end', resolve)
       .on('error', reject)
       .save(rawPath);
