@@ -14,6 +14,7 @@ const wss = new Server({ server });
 
 const PORT = process.env.PORT || 10000;
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
+const BASE_URL = process.env.BASE_URL;
 
 const deepgram = createClient(DEEPGRAM_API_KEY);
 
@@ -26,14 +27,13 @@ app.post('/incoming-call', (req, res) => {
       <Start>
         <Stream url="wss://${req.headers.host}/media" />
       </Start>
-      <Play>https://${req.headers.host}/audio/intro.mp3</Play>
+      <Play>${BASE_URL}/audio/intro.mp3</Play>
     </Response>
   `;
   res.type('text/xml');
   res.send(twiml);
 });
 
-// WebSocket: hanterar live media
 wss.on('connection', (ws) => {
   console.log('🔌 WebSocket-anslutning etablerad');
 
@@ -45,11 +45,10 @@ wss.on('connection', (ws) => {
     if (data.event === 'start') {
       console.log('🚀 Stream startad');
 
-      dgConnection = deepgram.listen.live({ 
+      dgConnection = deepgram.listen.live({
         model: 'nova',
         language: 'sv',
         interim_results: false,
-        punctuate: true,
         encoding: 'linear16',
         sample_rate: 8000,
         channels: 1,
@@ -69,7 +68,7 @@ wss.on('connection', (ws) => {
 
             ws.send(JSON.stringify({
               event: 'play',
-              audio_url: `https://${process.env.BASE_URL}/audio/reply.mp3`
+              audio_url: `${BASE_URL}/audio/reply.mp3`
             }));
           } catch (err) {
             console.error('🚨 Fel i svarsgenerering:', err.message);

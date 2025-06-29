@@ -4,7 +4,7 @@ const path = require('path');
 require('dotenv').config();
 
 const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY;
-const VOICE_ID = process.env.ELEVEN_VOICE_ID || 'rG05xR2lvyonVmthwvZ7'; // Amaia
+const VOICE_ID = process.env.ELEVEN_VOICE_ID || 'rG05xR2lvyonVmthwvZ7';
 const MODEL_ID = process.env.ELEVEN_MODEL_ID || 'eleven_turbo_v2_5';
 
 async function speak(text, filepath) {
